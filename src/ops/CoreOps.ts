@@ -1,13 +1,13 @@
 // #region IMPORTS
-// import type BMesh   from '../BMesh';
-import BMesh        from '../BMesh';
-import Vertex       from '../ds/Vertex';
+import type BMesh   from '../BMesh';
+import type Vertex  from '../ds/Vertex';
 import Edge         from '../ds/Edge';
 import Loop         from '../ds/Loop';
 import Face         from '../ds/Face';
 
 import QueryOps     from '../ops/QueryOps';
 import ConstructOps from '../ops/ConstructOps';
+import StructOps    from '../ops/StructOps';
 // #endregion
 
 export default class CoreOps{
@@ -46,9 +46,8 @@ export default class CoreOps{
 
         // Create a closed linked list
         for( let i=1; i < verts.length; i++ ){
-            // l = this.loopCreate( verts[i], edges[i], face );
-            l = bm.addLoop( verts[i], edges[i], face );
-            this.radialLoopAppend( edges[i], l );
+            l = bm.addLoop( verts[i], edges[i], face ); // this.loopCreate( verts[i], edges[i], face );
+            StructOps.radialLoopAppend( edges[i], l );
             loops.push( l );
 
             l.prev      = lLast;
@@ -68,12 +67,29 @@ export default class CoreOps{
 
     // bm_face_boundary_add : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L265
     static faceBoundaryAdd( bm: BMesh, f: Face, v: Vertex, e: Edge ): Loop{
-        // const l = this.loopCreate( v, e, f );
-        const l = bm.addLoop( v, e, f );
-        this.radialLoopAppend( e, l )
+        const l = bm.addLoop( v, e, f ); // this.loopCreate( v, e, f );
+        StructOps.radialLoopAppend( e, l );
 
         f.loop = l;
         return l;
+    }
+
+    // https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L840
+    static faceKill( bm: BMesh, f: Face ): void{
+        if( f.loop ){
+            const origin : Loop = f.loop;
+            let iter     : Loop = origin;
+            let nIter    : Loop;
+
+            do{
+                nIter = iter.next;
+                StructOps.radialLoopRemove( iter.edge, iter );
+                bm.cleanLoop( iter );
+
+            } while( ( iter = nIter ) != origin );
+        }
+        
+        bm.cleanFace( f );
     }
 
     // #endregion
@@ -88,32 +104,6 @@ export default class CoreOps{
         l.face  = f;
         
         return l;
-    }
-
-    // Append to the Radial Link List
-    // bmesh_radial_loop_append : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_structure.cc#L375
-    static radialLoopAppend( e: Edge, l: Loop ): void{
-        if( !e.loop ){
-            // First loop for the edge
-            e.loop        = l;
-            l.radial_next = l
-            l.radial_prev = l;
-        }else{
-            // Append loop to circular list
-            l.radial_prev = e.loop;
-            l.radial_next = e.loop.radial_next;
-            
-            e.loop.radial_next.radial_prev = l;
-            e.loop.radial_next             = l;
-            e.loop                         = l;
-        }
-        
-        if( l.edge && l.edge != e ){
-            /* l is already in a radial cycle for a different edge */
-            console.log( 'UNLIKELY - Loop is already a cycle for a different edge' );
-        }
-        
-        l.edge = e;
     }
 
     // #endregion
@@ -131,39 +121,32 @@ export default class CoreOps{
         // if( edge ) return edge;
 
         const edge = new Edge( v1, v2 );    // Create edge
-        this.diskEdgeAppend( edge, v1 );    // Attach edge to circular lists
-        this.diskEdgeAppend( edge, v2 );
+        StructOps.diskEdgeAppend( edge, v1 );    // Attach edge to circular lists
+        StructOps.diskEdgeAppend( edge, v2 );
 
         return edge;
     }
 
-    // Append Edge to the vertex radial list
-    // bmesh_disk_edge_append: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_structure.cc#L137
-    static diskEdgeAppend( e: Edge, v: Vertex ): void{
-        // Initial use of a vertex with an edge
-        if( !v.edge ){
-            const disk = e.getDiskFromVert( v );
-            if( disk ){
-                v.edge    = e;
-                disk.prev = e;
-                disk.next = e;
-            }
-        }else{
-            // White boarding the process, it looks like it tries to insert this new edge
-            // as the next of the starter edge. In the case of single edge to having two
-            // it goes from E0 < E0 > E0 becomes E1 < E0 > E1
-            const d1 = e.getDiskFromVert( v );          // This edge's cycle for vertex
-            const d2 = v.edge.getDiskFromVert( v );     // Vert's Starter Edge Cycle  
-            const d3 = ( d2?.prev )? d2?.prev.getDiskFromVert( v ) : null; // Vert's Starter Edge prevoous
-
-            if( d1 && d2 ){
-                d1.next = v.edge;
-                d1.prev = d2.prev; 
-                d2.prev = e;
-            }
-
-            if( d3 ) d3.next = e;
+    // BM_edge_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L939
+    static edgeKill( bm: BMesh, e: Edge ){
+        while( e.loop ){
+            this.faceKill( bm, e.loop.face ); // Will replace e.loop with next available one till its null
         }
+
+        StructOps.diskEdgeRemove( e, e.v1 );
+        StructOps.diskEdgeRemove( e, e.v2 );
+
+        bm.cleanEdge( e );
+    }
+
+    // #endregion
+
+    // #region VERTEX
+
+    // BM_vert_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L951
+    static vertKill( bm: BMesh, v: Vertex ){
+        while( v.edge ) this.edgeKill( bm, v.edge );
+        bm.cleanVert( v );
     }
 
     // #endregion

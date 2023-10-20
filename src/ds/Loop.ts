@@ -106,7 +106,7 @@ export default class Loop {
 
     // Other Loops( faces ) connected to this edge
     // Every loop in this radial list has the same value for Loop.edge
-    radial_prev !: Loop;    
+    radial_prev !: Loop;
     radial_next !: Loop;
     
     // Other loops (edges) that are part of this face

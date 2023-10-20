@@ -1,0 +1,160 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+
+// #region IMPORTS
+import type Vertex     from '../ds/Vertex';
+import type Edge       from '../ds/Edge';
+import type {DiskLink} from '../ds/Edge';
+import type Loop       from '../ds/Loop';
+// #endregion
+
+export default class StructOps{
+
+    // #region EDGES
+
+    // Append Edge to the vertex radial list
+    // bmesh_disk_edge_append: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_structure.cc#L137
+    static diskEdgeAppend( e: Edge, v: Vertex ): void{
+        // Initial use of a vertex with an edge
+        if( !v.edge ){
+            const disk = e.getDiskFromVert( v );
+            if( disk ){
+                v.edge    = e;
+                disk.prev = e;
+                disk.next = e;
+            }
+        }else{
+            // White boarding the process, it looks like it tries to insert this new edge
+            // as the next of the starter edge. In the case of single edge to having two
+            // it goes from E0 < E0 > E0 becomes E1 < E0 > E1
+            const d1 = e.getDiskFromVert( v );          // This edge's cycle for vertex
+            const d2 = v.edge.getDiskFromVert( v );     // Vert's Starter Edge Cycle  
+            const d3 = ( d2?.prev )? d2?.prev.getDiskFromVert( v ) : null; // Vert's Starter Edge prevoous
+
+            if( d1 && d2 ){
+                d1.next = v.edge;
+                d1.prev = d2.prev; 
+                d2.prev = e;
+            }
+
+            if( d3 ) d3.next = e;
+        }
+    }
+
+    // Remove an edge from the radial list
+    // bmesh_disk_edge_remove : https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L162
+    static diskEdgeRemove( e: Edge, v: Vertex ): void{
+        const d1 : DiskLink = e.getDiskFromVert( v );
+        let   d2 : DiskLink;
+
+        if( d1.prev ){
+            d2      = d1.prev.getDiskFromVert( v );
+            d2.next = d1.next;
+        }
+
+        if( d1.next ){
+            d2 = d1.next.getDiskFromVert( v );
+            d2.prev = d1.prev;
+        }
+
+        if( v.edge == e ){
+            v.edge = ( e != d1.next )? d1.next : null;
+        }
+
+        // @ts-ignore: For GC
+        d1.next = null;
+        // @ts-ignore: For GC
+        d1.prev = null;
+    }
+
+    // #endregion
+
+    // #region VERTEX
+
+    // https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L200
+    // int bmesh_disk_count(const BMVert *v)
+    // {
+    //   int count = 0;
+    //   if (v->e) {
+    //     BMEdge *e_first, *e_iter;
+    //     e_iter = e_first = v->e;
+    //     do {
+    //       count++;
+    //     } while ((e_iter = bmesh_disk_edge_next(e_iter, v)) != e_first);
+    //   }
+    //   return count;
+    // }
+
+    // #endregion
+
+    // #region LOOPS
+
+    // Append to the Radial Link List
+    // bmesh_radial_loop_append : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_structure.cc#L375
+    static radialLoopAppend( e: Edge, l: Loop ): void{
+        if( !e.loop ){
+            // First loop for the edge
+            e.loop        = l;
+            l.radial_next = l
+            l.radial_prev = l;
+        }else{
+            // Append loop to circular list
+            l.radial_prev = e.loop;
+            l.radial_next = e.loop.radial_next;
+            
+            e.loop.radial_next.radial_prev = l;
+            e.loop.radial_next             = l;
+            e.loop                         = l;
+        }
+        
+        if( l.edge && l.edge != e ){
+            /* l is already in a radial cycle for a different edge */
+            console.log( 'UNLIKELY - Loop is already a cycle for a different edge' );
+        }
+        
+        l.edge = e;
+    }
+
+    // https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L399
+    static radialLoopRemove( e: Edge, l: Loop ): void{
+        if( e != l.edge ){
+            console.log( 'Unlikely: if e is non-nullptr, l must be in the radial cycle of e' );
+            return;
+        }
+    
+        if( l.radial_next !== l ){
+            if( l == e.loop ) e.loop = l.radial_next;
+    
+            l.radial_next.radial_prev = l.radial_prev;
+            l.radial_prev.radial_next = l.radial_next;
+        }else{
+            if( l == e.loop ) e.loop = null;
+        }
+    
+        // l is no longer in a radial cycle; empty the links
+        // to the cycle and the link back to an edge 
+
+        // @ts-ignore: For GC
+        l.radial_next = null;
+        // @ts-ignore: For GC
+        l.radial_prev = null;
+        // @ts-ignore: For GC
+        l.edge        = null;
+    }
+
+    // https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L429
+    // void bmesh_radial_loop_unlink(BMLoop *l)
+    // {
+    //   if (l->radial_next != l) {
+    //     l->radial_next->radial_prev = l->radial_prev;
+    //     l->radial_prev->radial_next = l->radial_next;
+    //   }
+    
+    //   /* l is no longer in a radial cycle; empty the links
+    //    * to the cycle and the link back to an edge */
+    //   l->radial_next = l->radial_prev = nullptr;
+    //   l->e = nullptr;
+    // }
+
+    // #endregion
+
+}

@@ -36,8 +36,8 @@ import type Loop   from './Loop';
 
 // Circular linked List of edges
 export class DiskLink{
-    next !: Edge;
-    prev !: Edge;
+    next !: Edge;  // Use any to make it null without the requirement to have null checks
+    prev !: Edge;  // Will only be set to null when deleting to help with garbage collection
 }
 
 export default class Edge{
