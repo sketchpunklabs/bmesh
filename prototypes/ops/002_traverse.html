@@ -9,7 +9,9 @@ import { BMesh } from '@bmesh';
 
 //#region MAIN
 let App   = useDarkScene( useThreeWebGL2() );
-let Ref   = {};
+let Ref   = {
+    loop : null,
+};
 let Debug;
 
 window.addEventListener( 'load', async _=>{
@@ -30,29 +32,123 @@ window.addEventListener( 'load', async _=>{
     const f0    = mesh.addFace( [ v0, v1, v4, v3 ] );
     const f1    = mesh.addFace( [ v1, v2, v5, v4 ] );
 
-    drawFace( f0 );
-    drawFace( f1 );
+    Ref.mesh    = mesh;
+    // drawFace( f0 );
+    // drawFace( f1 );
 
     console.log( mesh );
-    
-    // const v1    = mesh.addVertex( [1,0,-1] );
-    // const v2    = mesh.addVertex( [1,0,1] );
 
-    // const e1    = mesh.addEdge( v0, v1 );
-    // const e2    = mesh.addEdge( v1, v2 );
+    Ref.loop = mesh.loops[ mesh.loops.length-1 ];
 
-    // const f     = mesh.addFace( [ v0, v1, v2 ] );
+    render();
 
     // drawFace( mesh.faces[0] );
 
-    for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
+    // for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
     // for( const e of mesh.edges )    Debug.ln.add( e.v1.pos, e.v2.pos, 0x00ffff );
     // iterVertEdges( v1 );
     
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    initUI();
     App.renderLoop();
     // App.createRenderLoop( onPreRender ).start();
 });
+
+function initUI(){
+    document.getElementById( 'btnPrev' ).addEventListener( 'click', loopPrev );
+    document.getElementById( 'btnNext' ).addEventListener( 'click', loopNext );
+
+    document.getElementById( 'btnRPrev' ).addEventListener( 'click', loopRPrev );
+    document.getElementById( 'btnRNext' ).addEventListener( 'click', loopRNext );
+}
+
+function render(){
+    Debug.pnt.reset();
+    Debug.ln.reset();
+
+    const mesh = Ref.mesh;
+
+    for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
+    for( const e of mesh.edges )    Debug.ln.add( e.v1.pos, e.v2.pos, 0x00ffff );
+
+    const loop = Ref.loop;
+
+    const a = loop.vert.pos.slice(); loop.edge.v1.pos.slice();
+    const b = ( loop.vert === loop.edge.v1 )
+                    ? loop.edge.v2.pos.slice()
+                    : loop.edge.v1.pos.slice();
+
+    const perp = calcPerpPoints( a, b );
+    
+    a[1] += 0.2;
+    b[1] += 0.2;
+
+    // Debug.pnt.add( loop.vert.pos, 0xffff00, 5 );
+    // Debug.pnt.add( loop.edge.v1.pos, 0xff0000, 4 );
+    // Debug.pnt.add( loop.edge.v2.pos, 0xff00ff, 4 );
+
+    Debug.ln.add( a, b, 0xffff00 );
+    Debug.ln.add( perp.l, perp.r, 0xffff00 );
+
+    renderFace();
+}
+
+function renderFace(){
+    let iter = Ref.loop;
+    let x    = 0;
+    let z    = 0;
+    let cnt  = 0;
+    do{
+        x += iter.vert.pos[0];
+        z += iter.vert.pos[2];
+        cnt++;
+    } while( ( iter = iter.next ) != Ref.loop );
+
+    x /= cnt;
+    z /= cnt;
+
+    Debug.pnt.add( [x,0,z], 0xffff00, 5, 2 );
+}
+
+
+function calcPerpPoints( a, b ){
+    // 90 Degree Rotation on vector
+    let x =  ( b[2] - a[2] );
+    let y = -( b[0] - a[0] );
+
+    // Normalize
+    let l = Math.sqrt( x**2 + y**2 );
+    x   /= l;
+    y   /= l;
+
+    // Apply Direction to starting point
+    let r = 0.2;
+    return {
+        l: [ a[0] + x * r, 0.2, a[2] + y * r ],
+        r: [ a[0] - x * r, 0.2, a[2] - y * r ],
+    };
+}
+
+function loopNext(){
+    Ref.loop = Ref.loop.next;
+    render();
+}
+
+function loopPrev(){
+    Ref.loop = Ref.loop.prev;
+    render();
+}
+
+function loopRPrev(){
+    Ref.loop = Ref.loop.radial_prev;
+    render();
+}
+
+function loopRNext(){
+    Ref.loop = Ref.loop.radial_next;
+    render();
+}
+
 
 function iterVertEdges( v ){
     let iter = v.edge;
@@ -81,4 +177,16 @@ function drawFace( f ){
 
 // function onPreRender( dt, et ){}
 //#endregion
-</script></body></html>
+</script>
+
+<style>
+    .container{ position:fixed; top:10px; left:43%; }
+</style>
+<div class="container">
+    <button id="btnPrev">Prev Edge</button>
+    <button id="btnNext">Next Edge</button><br>
+    <button id="btnRPrev">Prev Radial</button>
+    <button id="btnRNext">Next Radial</button>
+</div>
+
+</body></html>
