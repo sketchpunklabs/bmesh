@@ -29,7 +29,8 @@ window.addEventListener( 'load', async _=>{
 
     const f     = mesh.addFace( [ v0, v1, v2 ] );
 
-    drawFace( mesh.faces[0] );
+    // drawFace( mesh.faces[0] );
+    drawFaceIter( mesh.faces[0] );
 
     // for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
     // for( const e of mesh.edges )    Debug.ln.add( e.v1.pos, e.v2.pos, 0x00ffff );
@@ -63,6 +64,14 @@ function drawFace( f ){
         Debug.ln.add( iter.edge.v1.pos, iter.edge.v2.pos, 0x00ffff );
         
     } while( ( iter = iter.next ) != f.loop );
+}
+
+function drawFaceIter( f ){
+    for( const l of f.loop.iterNext() ){
+        console.log( l );
+        Debug.pnt.add( l.vert.pos, 0x00ff00, 3 );
+        Debug.ln.add( l.edge.v1.pos, l.edge.v2.pos, 0x00ffff );
+    }
 }
 
 // function onPreRender( dt, et ){}
