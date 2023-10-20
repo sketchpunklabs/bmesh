@@ -11,7 +11,6 @@ import QueryOps from './ops/QueryOps';
 export default class BMesh{
 
     // #region MAIN
-    eIDs     : number        = 1;
     vertices : Array<Vertex> = [];
     edges    : Array<Edge>   = [];
     loops    : Array<Loop>   = [];
@@ -50,4 +49,26 @@ export default class BMesh{
 
     // #endregion
 
+    // #region REMOVING
+
+    removeFace( f: Face ): void{ CoreOps.faceKill( this, f ); }
+    removeEdge( e: Edge ): void{ CoreOps.edgeKill( this, e ); }
+    removeVertex( v: Vertex ): void{ CoreOps.vertKill( this, v ); }
+
+    cleanVert( v: Vertex ): void{ if( !this.cleanArray( v, this.vertices ) ) console.log( 'Vertex not found for cleanup' ); }
+    cleanEdge( e: Edge ): void{ if( !this.cleanArray( e, this.edges ) ) console.log( 'Edge not found for cleanup' ); }
+    cleanLoop( l: Loop ): void{ if( !this.cleanArray( l, this.loops ) ) console.log( 'Loop not found for cleanup' ); }
+    cleanFace( f: Face ): void{ if( !this.cleanArray( f, this.faces ) ) console.log( 'Face not found for cleanup' ); }
+    cleanArray( itm: any, ary: Array< any > ): boolean{
+        const a = ary.indexOf( itm );
+        if( a === -1 ) return false;
+
+        const z = ary.length - 1;
+        if( a !== z ) ary[ a ] = ary[ z ];
+
+        ary.length = z;
+        return true;
+    }
+
+    // #endregion
 }
