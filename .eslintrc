@@ -1,0 +1,21 @@
+{
+    "root"      : true,
+    "parser"    : "@typescript-eslint/parser",
+    "plugins"   : [
+      "@typescript-eslint"
+    ],
+    "extends"   : [
+      "eslint:recommended",
+      "plugin:@typescript-eslint/eslint-recommended",
+      "plugin:@typescript-eslint/recommended"
+    ],
+    "env": {
+      "browser": true,
+      "node": true
+    },
+    "rules"     : {
+      "@typescript-eslint/no-inferrable-types" : 0,
+      "@typescript-eslint/no-array-constructor": 0,
+      "@typescript-eslint/no-explicit-any":0
+    }
+  }

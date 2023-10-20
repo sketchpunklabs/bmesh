@@ -1,0 +1,10 @@
+https://wiki.blender.org/wiki/Source/Modeling/BMesh/Design
+
+https://github.com/dfelinto/blender/blob/master/source/blender/bmesh/bmesh_class.h
+
+
+
+https://github.com/eliemichel/BMeshUnity/blob/master/Library/BMesh.cs
+
+https://fossies.org/linux/blender/source/blender/python/bmesh/bmesh_py_api.c
+https://cpp.hotexamples.com/examples/-/-/BM_vert_create/cpp-bm_vert_create-function-examples.html

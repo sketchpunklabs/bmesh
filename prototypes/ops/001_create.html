@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+
+import { BMesh } from '@bmesh';
+//#endregion
+
+//#region MAIN
+let App   = useDarkScene( useThreeWebGL2() );
+let Ref   = {};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    Debug = await useVisualDebug( App );
+    App.sphericalLook( 0, 20, 6 );
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const mesh  = new BMesh();
+    const v0    = mesh.addVertex( [-1,0,-1] );
+    const v1    = mesh.addVertex( [1,0,-1] );
+    const v2    = mesh.addVertex( [1,0,1] );
+
+    // const eg    = mesh.addEdge( v0, v1 );
+    // const e2    = mesh.addEdge( v1, v2 );
+
+    const f     = mesh.addFace( [ v0, v1, v2 ] );
+
+    // for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
+    // for( const e of mesh.edges )    Debug.ln.add( e.v1.pos, e.v2.pos, 0x00ffff );
+    // iterVertEdges( v1 );
+
+    drawFace( mesh.faces[0] );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.renderLoop();
+    // App.createRenderLoop( onPreRender ).start();
+});
+
+function iterVertEdges( v ){
+    let iter = v.edge;
+    if( !iter ){
+        console.log( 'NoStarting Edge' );
+        return;
+    }
+
+
+    for( let i=0; i < 100; i++ ){
+        console.log( 'x', i, iter );
+        iter = iter.diskEdgeNext( v );
+        if( iter === v.edge ) break;
+    }
+}
+
+function drawFace( f ){
+    let iter = f.l_first;
+    do{
+
+        Debug.pnt.add( iter.vert.pos, 0x00ff00, 3 );
+        Debug.ln.add( iter.edge.v1.pos, iter.edge.v2.pos, 0x00ffff );
+        
+    } while( ( iter = iter.next ) != f.l_first );
+}
+
+// function onPreRender( dt, et ){}
+//#endregion
+</script></body></html>
