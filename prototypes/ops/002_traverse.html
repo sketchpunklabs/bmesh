@@ -20,18 +20,32 @@ window.addEventListener( 'load', async _=>{
     
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     const mesh  = new BMesh();
-    const v0    = mesh.addVertex( [-1,0,-1] );
-    const v1    = mesh.addVertex( [1,0,-1] );
-    const v2    = mesh.addVertex( [1,0,1] );
+    const v0    = mesh.addVertex( [-2,0,-1] );
+    const v1    = mesh.addVertex( [ 0,0,-1] );
+    const v2    = mesh.addVertex( [ 2,0,-1] );
+    const v3    = mesh.addVertex( [-2,0, 1] );
+    const v4    = mesh.addVertex( [ 0,0, 1] );
+    const v5    = mesh.addVertex( [ 2,0, 1] );
+
+    const f0    = mesh.addFace( [ v0, v1, v4, v3 ] );
+    const f1    = mesh.addFace( [ v1, v2, v5, v4 ] );
+
+    drawFace( f0 );
+    drawFace( f1 );
+
+    console.log( mesh );
+    
+    // const v1    = mesh.addVertex( [1,0,-1] );
+    // const v2    = mesh.addVertex( [1,0,1] );
 
     // const e1    = mesh.addEdge( v0, v1 );
     // const e2    = mesh.addEdge( v1, v2 );
 
-    const f     = mesh.addFace( [ v0, v1, v2 ] );
+    // const f     = mesh.addFace( [ v0, v1, v2 ] );
 
-    drawFace( mesh.faces[0] );
+    // drawFace( mesh.faces[0] );
 
-    // for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
+    for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
     // for( const e of mesh.edges )    Debug.ln.add( e.v1.pos, e.v2.pos, 0x00ffff );
     // iterVertEdges( v1 );
     

@@ -9,7 +9,8 @@ import CoreOps  from './ops/CoreOps';
 
 export default class BMesh{
 
-    // #region MAINN
+    // #region MAIN
+    eIDs     : number        = 1;
     vertices : Array<Vertex> = [];
     edges    : Array<Edge>   = [];
     loops    : Array<Loop>   = [];
@@ -31,12 +32,17 @@ export default class BMesh{
         return edge;
     }
 
+    // This filters out any edges that already exist in the list
+    _pushEdge( e: Edge ): void{
+        if( !e.id ){ e.id = this.eIDs++; this.edges.push( e ); }
+    }
+
     addFace( ary: Array<Vertex> ){
         const rtn = CoreOps.faceCreateVerts( ary );
         
         this.faces.push( rtn.face );
         if( rtn.loops ) for( const i of rtn.loops ) this.loops.push( i );
-        if( rtn.edges ) for( const i of rtn.edges ) this.edges.push( i );
+        if( rtn.edges ) for( const i of rtn.edges ) this._pushEdge( i );
 
         return rtn.face;
     }

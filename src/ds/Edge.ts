@@ -43,6 +43,7 @@ export class DiskLink{
 export default class Edge{
 
     // #region MAIN
+    id      !: number;
     v1      !: Vertex;
     v2      !: Vertex;
     loop     : Loop | null = null; // First loop, use to loop over all faces this edge is part of

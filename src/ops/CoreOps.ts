@@ -20,6 +20,10 @@ export default class CoreOps{
             edges = ConstructOps.edgesFromVertsEnsure( verts );
         }else{
             edges = [];
+            console.log( "TODO - faceCreateVerts dont createEdges" );
+            // if (BM_edges_from_verts(edge_arr, vert_arr, len) == false) {
+            //     return nullptr;
+            //   }
         }   
 
         const result = this.faceCreate( verts, edges );
