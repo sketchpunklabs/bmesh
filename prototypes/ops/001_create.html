@@ -56,13 +56,13 @@ function iterVertEdges( v ){
 }
 
 function drawFace( f ){
-    let iter = f.l_first;
+    let iter = f.loop;
     do{
 
         Debug.pnt.add( iter.vert.pos, 0x00ff00, 3 );
         Debug.ln.add( iter.edge.v1.pos, iter.edge.v2.pos, 0x00ffff );
         
-    } while( ( iter = iter.next ) != f.l_first );
+    } while( ( iter = iter.next ) != f.loop );
 }
 
 // function onPreRender( dt, et ){}

@@ -3,6 +3,8 @@ import type Vertex       from '../ds/Vertex';
 import type Edge         from '../ds/Edge';
 import type Loop         from '../ds/Loop';
 import type Face         from '../ds/Face';
+
+import vec3              from '../maths/vec3';
 // #endregion
 
 export default class QueryOps{
@@ -31,7 +33,7 @@ export default class QueryOps{
     
     // #endregion
 
-    // #region FACES
+    // #region FACES / LOOPS
 
     // BM_face_exists : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_query.cc#L1621
     static faceExists( verts: Array< Vertex > ): Face | null{
@@ -86,6 +88,18 @@ export default class QueryOps{
         return null
     }
 
+    // BM_loop_calc_face_normal : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_query.cc#L1278
+    static loopCalcFaceNormal( l: Loop, n: Array<number> ){
+        if( l.next == l.prev ){
+            console.log( 'loopCalcFaceNormal : Next & Prev Match' );
+            return;
+        }
+
+        const a = vec3.sub( l.prev.vert.pos, l.vert.pos );
+        const b = vec3.sub( l.next.vert.pos, l.vert.pos );
+        const c = vec3.cross( b, a ); // Flip vectors for normals to point in CCW direction
+        vec3.norm( c, n );
+    }
     // #endregion
 
 }

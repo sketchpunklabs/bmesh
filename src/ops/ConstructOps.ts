@@ -1,9 +1,7 @@
 // #region IMPORTS
+import type BMesh   from '../BMesh';
 import type Vertex  from '../ds/Vertex';
 import type Edge    from '../ds/Edge';
-
-import CoreOps      from '../ops/CoreOps';
-import QueryOps     from '../ops/QueryOps';
 // #endregion
 
 export default class ConstructOps{
@@ -11,14 +9,15 @@ export default class ConstructOps{
     // #region EDGES
 
     // BM_edges_from_verts_ensure : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_construct.cc#L52
-    static edgesFromVertsEnsure( verts: Array< Vertex > ): Array< Edge >{
+    static edgesFromVertsEnsure( bm: BMesh, verts: Array< Vertex > ): Array< Edge >{
         const rtn   : Array< Edge > = [];
         let edge    : Edge | null;
         let ii      : number;
 
         for( let i=0; i < verts.length; i++ ){
             ii   = ( i + 1 ) % verts.length;
-            edge = CoreOps.edgeCreate( verts[ i ], verts[ ii ] );
+            // edge = CoreOps.edgeCreate( verts[ i ], verts[ ii ] );
+            edge = bm.addEdge( verts[ i ], verts[ ii ] ); // Switch to using BM as main entry to create edges
             if( edge ) rtn.push( edge );
         }
 
@@ -26,7 +25,7 @@ export default class ConstructOps{
     }
 
     // BM_edges_from_verts : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_construct.cc#L39
-    static edgesFromVerts( verts: Array< Vertex > ): boolean { //Array< Edge >
+    // static edgesFromVerts( verts: Array< Vertex > ): boolean { //Array< Edge >
         // const rtn   : Array< Edge > = [];
 
         // for( let i=0; i < verts.length; i++ ){
@@ -39,8 +38,8 @@ export default class ConstructOps{
         //     i_prev = i;
         // }
 
-        return true;
-    }
+    //     return true;
+    // }
     // bool BM_edges_from_verts(BMEdge **edge_arr, BMVert **vert_arr, const int len)
     // {
     // int i, i_prev = len - 1;

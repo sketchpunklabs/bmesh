@@ -1,5 +1,6 @@
 // #region IMPORTS
 // import type BMesh   from '../BMesh';
+import BMesh        from '../BMesh';
 import Vertex       from '../ds/Vertex';
 import Edge         from '../ds/Edge';
 import Loop         from '../ds/Loop';
@@ -14,10 +15,10 @@ export default class CoreOps{
     // #region FACES
 
     // BM_face_create_verts : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L471C9-L471C29
-    static faceCreateVerts( verts: Array< Vertex >, createEdges=true ): { face: Face, loops?:Array<Loop>, edges?:Array<Edge> }{
+    static faceCreateVerts( bm: BMesh, verts: Array< Vertex >, createEdges=true ): Face {
         let edges: Array< Edge >;
         if( createEdges ){
-            edges = ConstructOps.edgesFromVertsEnsure( verts );
+            edges = ConstructOps.edgesFromVertsEnsure( bm, verts );
         }else{
             edges = [];
             console.log( "TODO - faceCreateVerts dont createEdges" );
@@ -26,24 +27,18 @@ export default class CoreOps{
             //   }
         }   
 
-        const result = this.faceCreate( verts, edges );
-
-        return {
-            face  : result.face,
-            loops : result.loops,
-            edges : ( createEdges )? edges : undefined,
-        };
+        return this.faceCreate( bm, verts, edges );
     }
 
     // BM_face_create : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L402
-    static faceCreate( verts: Array< Vertex >, edges: Array< Edge > ): { face: Face, loops ?: Array<Loop> }{
+    static faceCreate( bm: BMesh, verts: Array< Vertex >, edges: Array< Edge > ): Face {
         let face : Face | null = QueryOps.faceExists( verts );
-        if( face ) return { face };
+        if( face ) return face;
 
         face         = new Face();
         face.len     = verts.length;
 
-        const lStart : Loop = this.faceBoundaryAdd( face, verts[0], edges[0] );
+        const lStart : Loop = this.faceBoundaryAdd( bm, face, verts[0], edges[0] );
         let   lLast  : Loop = lStart;
         let   l      : Loop;
 
@@ -51,7 +46,8 @@ export default class CoreOps{
 
         // Create a closed linked list
         for( let i=1; i < verts.length; i++ ){
-            l = this.loopCreate( verts[i], edges[i], face );
+            // l = this.loopCreate( verts[i], edges[i], face );
+            l = bm.addLoop( verts[i], edges[i], face );
             this.radialLoopAppend( edges[i], l );
             loops.push( l );
 
@@ -63,15 +59,20 @@ export default class CoreOps{
         lStart.prev = lLast;
         lLast.next  = lStart;
 
-        return { face, loops };
+        // NOTE: This op wasn't part of blender's fn, added here to make faces more
+        // usable as soon as its created in certain visualization debugging.
+        if( face.loop ) QueryOps.loopCalcFaceNormal( face.loop, face.norm );
+
+        return face;
     }
 
     // bm_face_boundary_add : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L265
-    static faceBoundaryAdd( f: Face, v: Vertex, e: Edge ): Loop{
-        const l = this.loopCreate( v, e, f );
+    static faceBoundaryAdd( bm: BMesh, f: Face, v: Vertex, e: Edge ): Loop{
+        // const l = this.loopCreate( v, e, f );
+        const l = bm.addLoop( v, e, f );
         this.radialLoopAppend( e, l )
 
-        f.l_first = l;
+        f.loop = l;
         return l;
     }
 
@@ -124,10 +125,12 @@ export default class CoreOps{
     static edgeCreate( v1: Vertex, v2: Vertex ): Edge | null {
         if( v1 === v2 ){ console.log( 'edge create : vertices the same' ); return null; }
 
-        let edge = QueryOps.edgeExists( v1, v2 );
-        if( edge ) return edge;
+        // Note: Taking this part out. Opting to using edgeExists in BMesh.addEdge
+        // instead as it will be the main entry point to creating new edges int he object
+        // let edge = QueryOps.edgeExists( v1, v2 );
+        // if( edge ) return edge;
 
-        edge = new Edge( v1, v2 );    // Create edge
+        const edge = new Edge( v1, v2 );    // Create edge
         this.diskEdgeAppend( edge, v1 );    // Attach edge to circular lists
         this.diskEdgeAppend( edge, v2 );
 

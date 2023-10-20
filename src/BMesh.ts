@@ -5,6 +5,7 @@ import Loop     from './ds/Loop';
 import Face     from './ds/Face';
 
 import CoreOps  from './ops/CoreOps';
+import QueryOps from './ops/QueryOps';
 // #endregion
 
 export default class BMesh{
@@ -27,24 +28,24 @@ export default class BMesh{
     }
 
     addEdge( v1: Vertex, v2: Vertex ): Edge | null{
-        const edge = CoreOps.edgeCreate( v1, v2 );
+        let edge = QueryOps.edgeExists( v1, v2 );
+        if( edge ) return edge;
+
+        edge = CoreOps.edgeCreate( v1, v2 );
         if( edge ) this.edges.push( edge );
         return edge;
     }
 
-    // This filters out any edges that already exist in the list
-    _pushEdge( e: Edge ): void{
-        if( !e.id ){ e.id = this.eIDs++; this.edges.push( e ); }
+    addLoop( v: Vertex, e: Edge, f: Face ): Loop{
+        const loop = CoreOps.loopCreate( v, e, f );
+        this.loops.push( loop );
+        return loop;
     }
 
     addFace( ary: Array<Vertex> ){
-        const rtn = CoreOps.faceCreateVerts( ary );
-        
-        this.faces.push( rtn.face );
-        if( rtn.loops ) for( const i of rtn.loops ) this.loops.push( i );
-        if( rtn.edges ) for( const i of rtn.edges ) this._pushEdge( i );
-
-        return rtn.face;
+        const face = CoreOps.faceCreateVerts( this, ary );        
+        this.faces.push( face );
+        return face;
     }
 
     // #endregion
