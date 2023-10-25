@@ -1,0 +1,97 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import RayCasting, { nearPoint } from '../_lib/misc/RayCasting.js';
+//#endregion
+
+//#region MAIN
+let App   = useDarkScene( useThreeWebGL2() );
+let Ref   = {idx:-1};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    Debug = await useVisualDebug( App );
+    App.sphericalLook( 0, 20, 6 );
+
+    Ref.ray = new RayCasting( App.camera, App.renderer );
+    Ref.ray.onMouseHover = onRayHover;
+    Ref.ray.active();
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    let p = new Polygon( [ 
+        [-1,0,-1],
+        [1,0,-1],
+        [1,0,1],
+        [-1,0,1],
+    ]);
+
+    p.render();
+
+    Ref.poly = p;
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.renderLoop();
+    // App.createRenderLoop( onPreRender ).start();
+});
+
+// function onPreRender( dt, et ){}
+
+function onRayHover( e, ray ){
+    const [ rayStart, rayEnd ] = ray.getRaySegment();
+    // console.log( rayStart, rayEnd );
+
+    let min     = Infinity;
+    let iHit    = -1;
+    let lmtDist = 0.1 ** 2;
+
+    for( let i=0; i < Ref.poly.points.length; i++ ){
+        let p    = Ref.poly.points[i];
+        let hit  = nearPoint( rayStart, rayEnd, p );
+        if( hit === null ) continue;
+
+        let dist = ( hit[0] - p[0] ) ** 2 + 
+                   ( hit[1] - p[1] ) ** 2 + 
+                   ( hit[2] - p[2] ) ** 2;
+        // console.log( i, dist );
+        if( dist < lmtDist && dist < min ){
+            min  = dist;
+            iHit = i;
+        }
+    }
+
+    Ref.idx = iHit;
+    console.log( 'Hit', iHit );
+    Ref.poly.render();
+}
+
+//#endregion
+
+class Polygon{
+    points = [];
+    color  = 0x00ff00;
+
+    constructor( pnts=null ){
+        if( pnts ){
+            for( let p of pnts ) this.points.push( p );
+        }
+    }
+
+    render(){
+        Debug.ln.reset();
+        Debug.pnt.reset();
+
+        let i, ii;
+        for( let i=0; i < this.points.length; i++ ){
+            ii = ( i+1 ) % this.points.length;
+            Debug.ln.add( this.points[i], this.points[ii], this.color );
+            Debug.pnt.add( this.points[i], ( i==Ref.idx) ?0xfffffff:this.color, 3 );
+        }
+    }
+}
+
+
+</script></body></html>

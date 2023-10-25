@@ -1,0 +1,366 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import RayCasting, { nearPoint, intersectPlane, nearSegment } from '../_lib/misc/RayCasting.js';
+
+import DynLineMesh      from '../_lib/meshes/DynLineMesh.js';
+import ShapePointsMesh  from '../_lib/meshes/ShapePointsMesh.js';
+//#endregion
+
+//#region MAIN
+let App   = useDarkScene( useThreeWebGL2() );
+let Ref   = {};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    Debug = await useVisualDebug( App );
+    App.sphericalLook( 0, 20, 6 );
+
+    // Ref.ray = new RayCasting( App.camera, App.renderer );
+    // Ref.ray.onMouseHover = onRayHover;
+    // Ref.ray.active();
+    
+    // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Ref.editor = new PolygonEditingMode( App.scene, App.camera, App.renderer );
+
+    Ref.editor.polygons.push(
+        new Polygon( [ [-1,0,-1], [1,0,-1], [1,0,1], [-1,0,1] ]),
+        new Polygon( [ [2,0,-1], [4,0,-1], [2,0,1] ]),
+    );
+
+    Ref.editor.render();
+    Ref.editor.selectIndex( 0 );
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    initUI();
+    App.renderLoop();
+    // App.createRenderLoop( onPreRender ).start();
+});
+
+// function onPreRender( dt, et ){}
+
+
+function initUI(){
+    document.getElementById( 'inpPolys' ).addEventListener( 'change', (e)=>{ Ref.editor.selectIndex( parseInt( e.target.value ) ) } );
+    document.getElementById( 'btnDel' ).addEventListener( 'click',    (e)=>{ Ref.editor.removeSelectedPoint() } );
+    document.getElementById( 'btnAdd' ).addEventListener( 'click',    (e)=>{ Ref.editor.addPoint() } );
+}
+//#endregion
+
+
+function randomHSLColor(){
+    // Randomize Hue, Saturation and Lightness
+    const hue = 360 * Math.random();
+    const sat = 0.4 * Math.random() + 0.6;
+    const lit = 0.5 * Math.random() + 0.4;
+
+    // Convert to RGB
+    const a = sat * Math.min(lit, 1 - lit);
+    const k = (n)=>(n + hue / 30) % 12;
+
+    const r = lit - a * Math.max(-1, Math.min(k(0) - 3, Math.min(9 - k(0), 1)));
+    const g = lit - a * Math.max(-1, Math.min(k(8) - 3, Math.min(9 - k(8), 1)));
+    const b = lit - a * Math.max(-1, Math.min(k(4) - 3, Math.min(9 - k(4), 1)));
+
+    // To Hex
+    const c = (~~(r * 255) << 16) | (~~(g * 255) << 8) | ~~(b * 255);
+    // return '#' + ('000000' + c.toString(16)).substr(-6);
+    return c;
+}
+
+class Polygon{
+    id     = window.crypto.randomUUID();
+    color  = randomHSLColor();
+    points = [];
+
+    constructor( pnts=null ){
+        if( pnts ){
+            for( let p of pnts ) this.points.push( p );
+        }
+    }
+
+    render(){
+        Debug.ln.reset();
+        Debug.pnt.reset();
+
+        let i, ii;
+        for( let i=0; i < this.points.length; i++ ){
+            ii = ( i+1 ) % this.points.length;
+            Debug.ln.add( this.points[i], this.points[ii], this.color );
+            Debug.pnt.add( this.points[i], ( i==Ref.idx) ?0xfffffff:this.color, 3 );
+        }
+    }
+}
+
+
+class PolygonEditingMode{
+    // #region MAIN
+    selectedPoly = null;
+    selectedPnt  = -1;
+    hoverPnt     = -1;
+
+    polygons     = [];
+    lines        = new DynLineMesh();
+    ln           = new DynLineMesh();
+    pnt          = new ShapePointsMesh();
+
+    ray          = null;
+    camera       = null;
+
+    opsMode      = 0;
+    opsData      = null;
+
+    constructor( scene, camera, renderer ){
+        scene.add( this.lines );
+        scene.add( this.ln );
+        scene.add( this.pnt );
+
+        this.ray = new RayCasting( App.camera, App.renderer );
+        this.ray.onMouseHover = this.onRayHover;
+        this.ray.onMouseDown  = this.onRayDown;
+        this.ray.onMouseUp    = this.onRayUp;
+        this.ray.onMouseMove  = this.onRayMove;
+        this.ray.active();
+    }
+    // #endregion
+
+    selectIndex( i ){
+        if( i == undefined ) this.selectedPoly = null;
+        else                 this.selectedPoly = this.polygons[ i ];
+
+        this.selectedPnt = -1;
+        this.hoverPnt    = -1;
+        this.render();
+    }
+
+    renderSelected(){
+        this.ln.reset();
+        this.pnt.reset();
+        if( !this.selectedPoly ) return;
+
+        const poly = this.selectedPoly;
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let i, ii; 
+        for( let i=0; i < poly.points.length; i++ ){
+            ii = ( i+1 ) % poly.points.length;
+            this.ln.add( poly.points[i], poly.points[ii], poly.color );
+
+            if( i !== this.selectedPnt && i !== this.hoverPnt )
+                this.pnt.add( poly.points[i], poly.color, 3 );
+            else
+                this.pnt.add( poly.points[i], 0xffffff, 5, 2 );
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        switch( this.opsMode ){
+            case 1:
+                if( this.opsData ) this.pnt.add( this.opsData[1], 0xffffff, 5, 6 );
+                break;
+        }
+    }
+
+    render(){
+        this.lines.reset();
+
+        let i, ii;
+        for( let poly of this.polygons ){
+            if( poly === this.selectedPoly ) continue;
+
+            for( i=0; i < poly.points.length; i++ ){
+                ii = ( i+1 ) % poly.points.length;
+                this.lines.add( poly.points[i], poly.points[ii], poly.color );
+            }
+        }
+
+        this.renderSelected();
+    }
+
+    removeSelectedPoint(){
+        if( !this.selectedPoly ){ console.log( 'No Poly selected' ); return; }
+        if( this.selectedPnt === -1 ){ console.log( 'No point selected' ); return; }
+        if( this.selectedPoly.points.length <= 3 ){ console.log( 'Cant del point, poly needs a min of 3 points to be valid' ); return false; }
+
+        this.selectedPoly.points.splice( this.selectedPnt, 1 );
+        this.selectedPnt = -1;
+        this.renderSelected();
+    }
+
+    addPoint(){ this.opsMode = 1; }
+
+    addPointAfter( pos, i ){
+        const poly = this.selectedPoly;
+        if( !poly ) return;
+
+        console.log( i,pos );
+        poly.points.splice( i+1, 0, pos );
+
+        console.log( poly.points );
+    }
+
+    startDrag(){
+        App.camCtrl.enabled = false;
+    }
+
+    stopDrag(){
+        App.camCtrl.enabled = true;
+    }
+
+    rayPointTest( ray ){
+        if( !this.selectedPoly ) return -1;
+        const poly = this.selectedPoly;
+
+        const [ rayStart, rayEnd ] = ray.getRaySegment();
+
+        let min     = Infinity;
+        let iHit    = -1;
+        let lmtDist = 0.2 ** 2;
+
+        for( let i=0; i < poly.points.length; i++ ){
+            let p    = poly.points[i];
+            let hit  = nearPoint( rayStart, rayEnd, p );
+            if( hit === null ) continue;
+
+            let dist = ( hit[0] - p[0] ) ** 2 + 
+                    ( hit[1] - p[1] ) ** 2 + 
+                    ( hit[2] - p[2] ) ** 2;
+            if( dist < lmtDist && dist < min ){
+                min  = dist;
+                iHit = i;
+            }
+        }
+
+        return iHit;
+    }
+
+    rayPlaneTest( ray ){
+        const [ rayStart, rayEnd ] = ray.getRaySegment();
+        const hit = intersectPlane( rayStart, rayEnd, [0,0,0], [0,1,0] );
+
+        // if( hit ){
+        //     Debug.pnt.reset();
+        //     Debug.pnt.add( hit, 0xffffff, 4, 0 );
+        // }
+
+        return hit;
+    }
+
+    rayEdgeTest( ray ){
+        if( !this.selectedPoly ) return -1;
+        const poly = this.selectedPoly;
+
+        const [ rayStart, rayEnd ] = ray.getRaySegment();
+
+        let min     = Infinity;
+        let iHit    = -1;
+        let lmtDist = 0.2;
+        let ii;
+        let hit;
+        let hitPos;
+
+        // Debug.pnt.reset();
+        for( let i=0; i < poly.points.length; i++ ){
+            ii  = ( i+1 ) % poly.points.length;
+            hit = nearSegment( rayStart, rayEnd, poly.points[i], poly.points[ii] );
+            if( !hit ) continue;
+
+            if( hit[0] < lmtDist && hit[0] < min ){
+                min    = hit[0];
+                hitPos = hit[1];
+                iHit   = i;
+            }
+        }
+
+        // if( hitPos ) Debug.pnt.add( hitPos, 0x00ff00, 3 );
+        return ( iHit !== -1 )? [iHit,hitPos] : null;
+    }
+
+    onRayHover = ( e, ray )=>{
+        switch( this.opsMode ){
+            case 0: // Hover Points
+                const iHit = this.rayPointTest( ray );
+                if( iHit !== this.hoverPnt ){
+                    this.hoverPnt = iHit;
+                    this.renderSelected();
+                }
+                break;
+            
+            case 1: // Hover edges
+                this.opsData = this.rayEdgeTest( ray );
+                this.renderSelected();
+                break;
+        }
+    }
+
+    onRayDown  = ( e, ray )=>{
+        switch( this.opsMode ){
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            case 0:
+                const iHit = this.rayPointTest( ray );
+                if( iHit !== -1 ){
+                    this.selectedPnt    = iHit;
+                    this.startDrag();
+                    this.renderSelected();
+                    return true;
+                }
+                break;
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            case 1:
+                const data = this.rayEdgeTest( ray );
+                this.opsMode = 0;
+                this.opsData = null;
+                if( data ){
+                    this.addPointAfter( data[1], data[0] );
+                    this.selectedPnt = data[0] + 1;
+                    this.startDrag();
+                }
+
+                this.renderSelected();
+                return !!data;
+                break;
+        }
+
+        return false;
+    }
+
+    onRayUp = ( e, ray )=>{
+        this.stopDrag();
+    }
+
+    onRayMove = ( e, ray )=>{
+        const hit = this.rayPlaneTest( ray );
+        if( !hit ) return;
+
+        const v = this.selectedPoly.points[ this.selectedPnt ];
+
+        v[0] = hit[0];
+        v[1] = hit[1];
+        v[2] = hit[2];
+
+        this.renderSelected();
+    }
+}
+
+</script>
+
+<style>
+    * { font-family:monospace; }
+    .container{ position:fixed; bottom:10px; left:48%; }
+    label{ color:white; }
+</style>
+<div class="container">
+    <label>Polygons</label>
+    <select id="inpPolys">
+        <option>0</option>
+        <option>1</option>
+    </select><br>
+    <button id="btnDel">Delete Point</button>
+    <button id="btnAdd">Add Point</button>
+</div>
+
+</body></html>

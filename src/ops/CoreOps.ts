@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // #region IMPORTS
 import type BMesh   from '../BMesh';
 import type Vertex  from '../ds/Vertex';
@@ -91,6 +92,109 @@ export default class CoreOps{
         
         bm.cleanFace( f );
     }
+
+    // bmesh_kernel_split_edge_make_vert: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1481
+    static splitEdgeMakeVert( bm: BMesh, tv: Vertex, e: Edge ): Vertex{
+        const v_old  = e.getOtherVert( tv ) as Vertex;
+        
+        // EXTRA, Nice to be able to see point right away
+        const midPos = [ 
+            tv.pos[0] * 0.5 + v_old.pos[0] * 0.5,
+            tv.pos[1] * 0.5 + v_old.pos[1] * 0.5,
+            tv.pos[2] * 0.5 + v_old.pos[2] * 0.5, 
+        ];
+
+        // order of 'e_new' verts should match 'e' (so extruded faces don't flip)
+        const v_new: Vertex = bm.addVertex( midPos );
+        // @ts-ignore Very unlikely to return null, only if the Two verts are the same
+        const e_new: Edge   = bm.addEdge( tv, v_new );
+
+        StructOps.diskEdgeRemove( e_new, tv );
+        StructOps.diskEdgeRemove( e_new, v_new );
+        StructOps.diskVertReplace( e, v_new, tv );
+    
+        // add e_new to v_new's disk cycle
+        StructOps.diskEdgeAppend( e_new, v_new );
+    
+        // add e_new to tv's disk cycle
+        StructOps.diskEdgeAppend( e_new, tv );
+
+        // Split the radial cycle if present
+        let l_next = e.loop;
+        e.loop     = null;
+
+        if( l_next ){
+            let l_new    : Loop;
+            let l        : Loop;
+            let is_first : boolean = true;
+
+            // Take the next loop. Remove it from radial. Split it. Append to appropriate radials
+            while( l_next ){
+                l = l_next;
+                l.face.len++;
+
+                l_next = ( l_next != l_next.radial_next )? l_next.radial_next : null;
+                StructOps.radialLoopInlink( l );
+                
+                // @ts-ignore
+                l_new = this.loopCreate( v_new, null, l.face );
+                l_new.prev      = l;
+                l_new.next      = l.next;
+                l_new.prev.next = l_new;
+                l_new.next.prev = l_new;
+                bm.loops.push( l_new );
+        
+                // assign the correct edge to the correct loop
+                if( QueryOps.vertsInEdge( l_new.vert, l_new.next.vert, e ) ){
+                    l_new.edge = e;
+                    l.edge     = e_new;
+            
+                    // append l into e_new's rad cycle
+                    if( is_first ){
+                        is_first      = false;
+                        // @ts-ignore
+                        l.radial_next = null;
+                        // @ts-ignore
+                        l.radial_prev = null;
+                    }
+
+                    StructOps.radialLoopAppend( l_new.edge, l_new );
+                    StructOps.radialLoopAppend( l.edge, l );
+
+                }else if( QueryOps.vertsInEdge( l_new.vert, l_new.next.vert, e_new ) ){
+                    l_new.edge = e_new;
+                    l.edge     = e;
+            
+                    // append l into e_new's rad cycle
+                    if (is_first) {
+                        is_first      = false;
+                        // @ts-ignore
+                        l.radial_next = null;
+                        // @ts-ignore
+                        l.radial_prev = null;
+                    }
+            
+                    StructOps.radialLoopAppend( l_new.edge, l_new );
+                    StructOps.radialLoopAppend( l.edge, l );
+                }
+            }
+        }
+            
+        return v_new;
+    }
+
+    // bmesh_kernel_split_face_make_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
+    // bmesh_kernel_join_edge_kill_vert: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1634
+    // bmesh_kernel_join_vert_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1801
+    // bmesh_kernel_join_face_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
+    // bmesh_kernel_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2086
+    // bmesh_kernel_edge_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2366
+    // BM_vert_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
+    // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135
+    // BM_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2238
+    // BM_edge_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2333
+    // BM_face_edges_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L806
+    // BM_face_verts_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L823
 
     // #endregion
 

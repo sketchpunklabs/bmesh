@@ -74,6 +74,13 @@ export default class Edge{
     // BM_vert_in_edge : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_query_inline.h#L19
     vertExists( v: Vertex ): boolean{ return ( this.v1 === v || this.v2 === v ); }
 
+    // BM_edge_other_vert : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query_inline.h#L48
+    getOtherVert( v: Vertex ): Vertex | null{ 
+        if( v == this.v1 ) return this.v2;
+        if( v == this.v2 ) return this.v1;
+        return null
+    }
+ 
     // #endregion
 
 }

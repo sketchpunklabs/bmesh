@@ -70,6 +70,31 @@ export default class StructOps{
 
     // #region VERTEX
 
+    // bmesh_disk_vert_replace : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_structure.cc#L58
+    static diskVertReplace( e: Edge, v_dst: Vertex, v_src: Vertex ){
+        this.diskEdgeRemove( e, v_src );        // remove e from tv's disk cycle
+        this.diskVertSwap( e, v_dst, v_src );   // swap out tv for v_new in e
+        this.diskEdgeAppend( e, v_dst );        // add e to v_dst's disk cycle
+    }
+
+    // bmesh_disk_vert_swap : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_structure.cc#L20
+    static diskVertSwap( e: Edge, v_dst: Vertex, v_src: Vertex ): void{
+        if( e.v1 == v_src ){
+            e.v1 = v_dst;
+            // @ts-ignore
+            e.v1_disk.next = null;
+            // @ts-ignore
+            e.v1_disk.prev = null;
+        
+        }else if( e.v2 == v_src ){
+            e.v2 = v_dst;
+            // @ts-ignore
+            e.v2_disk.next = null;
+            // @ts-ignore
+            e.v2_disk.prev = null;
+        }
+    }
+
     // https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L200
     // int bmesh_disk_count(const BMVert *v)
     // {
@@ -141,19 +166,20 @@ export default class StructOps{
         l.edge        = null;
     }
 
-    // https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L429
-    // void bmesh_radial_loop_unlink(BMLoop *l)
-    // {
-    //   if (l->radial_next != l) {
-    //     l->radial_next->radial_prev = l->radial_prev;
-    //     l->radial_prev->radial_next = l->radial_next;
-    //   }
-    
-    //   /* l is no longer in a radial cycle; empty the links
-    //    * to the cycle and the link back to an edge */
-    //   l->radial_next = l->radial_prev = nullptr;
-    //   l->e = nullptr;
-    // }
+    // bmesh_radial_loop_unlink : https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L429
+    static radialLoopInlink( l: Loop ): void{
+        if( l.radial_next != l ){
+            l.radial_next.radial_prev = l.radial_prev;
+            l.radial_prev.radial_next = l.radial_next;
+        }
+        // l is no longer in a radial cycle; empty the links to the cycle and the link back to an edge 
+        // @ts-ignore
+        l.radial_next = null;
+        // @ts-ignore
+        l.radial_prev = null;
+        // @ts-ignore
+        l.e           = null;
+    }
 
     // #endregion
 

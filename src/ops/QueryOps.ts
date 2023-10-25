@@ -102,4 +102,12 @@ export default class QueryOps{
     }
     // #endregion
 
+    // #region VERTICES
+
+    // BM_verts_in_edge : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query_inline.h#L39
+    static vertsInEdge( v1: Vertex, v2: Vertex, e: Edge ): boolean{
+        return ((e.v1 == v1 && e.v2 == v2) || (e.v1 == v2 && e.v2 == v1));
+    }
+
+    // #endregion
 }
