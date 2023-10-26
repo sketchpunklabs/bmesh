@@ -100,6 +100,38 @@ export default class QueryOps{
         const c = vec3.cross( b, a ); // Flip vectors for normals to point in CCW direction
         vec3.norm( c, n );
     }
+
+    // BM_face_find_double : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L1669
+    static faceFindDouble( f: Face ): Face | null{
+        const l_first: Loop = f.loop;
+        for( let l_iter = l_first.radial_next; l_first != l_iter; l_iter = l_iter.radial_next ){
+            if( l_iter.face.len == l_first.face.len ){
+                const l_b_init : Loop = l_iter;
+                let l_a        : Loop = l_first;
+                let l_b        : Loop = l_iter;
+
+                if( l_iter.vert == l_first.vert ){
+                    do{
+                        if( l_a.edge != l_b.edge ) break;
+                        l_a = l_a.next;
+                        l_b = l_b.next;
+                    } while( l_a != l_b_init && l_b != l_b_init  );
+                    
+                    if( l_b == l_b_init ) return l_iter.face;
+                }else{              
+                    do{
+                        if( l_a.edge != l_b.edge ) break;
+                        l_a = l_a.prev;
+                        l_b = l_b.next;
+                    } while ( l_a != l_b_init &&  l_b != l_b_init );
+
+                    if( l_b == l_b_init ) return l_iter.face;
+                }
+            }
+        }
+        return null;
+    }
+
     // #endregion
 
     // #region VERTICES
@@ -110,4 +142,5 @@ export default class QueryOps{
     }
 
     // #endregion
+
 }

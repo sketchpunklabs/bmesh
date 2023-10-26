@@ -75,7 +75,7 @@ export default class CoreOps{
         return l;
     }
 
-    // https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L840
+    // BM_face_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L840
     static faceKill( bm: BMesh, f: Face ): void{
         if( f.loop ){
             const origin : Loop = f.loop;
@@ -183,8 +183,127 @@ export default class CoreOps{
         return v_new;
     }
 
-    // bmesh_kernel_split_face_make_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
     // bmesh_kernel_join_edge_kill_vert: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1634
+    // do_del : Delete Vert, 
+    static joinEdgeKillVert( bm: BMesh, e_kill: Edge, v_kill: Vertex, do_del=true, check_edge_exists=true, kill_degenerate_faces=true, kill_duplicate_faces=true ){
+        // Make sure vert is part of edge
+        if( !e_kill.vertExists( v_kill ) ) return null;
+
+        if( StructOps.diskCountAtMost( v_kill, 3 ) != 2 ){
+            console.log( 'can only join edge on vert that only has two edges' );
+            return null;
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const e_old    = e_kill.diskEdgeNext( v_kill ) as Edge;
+        const v_target = e_kill.getOtherVert( v_kill) as Vertex;
+        const v_old    = e_old.getOtherVert( v_kill ) as Vertex;
+
+        /* check for double edges */
+        if( QueryOps.vertsInEdge( v_kill, v_target, e_old ) ) return null;
+
+        let e_splice    : Edge | null = null;
+        let l_kill_next : Loop;
+
+        if( check_edge_exists ) e_splice = QueryOps.edgeExists( v_target, v_old );
+
+        StructOps.diskVertReplace( e_old, v_target, v_kill );
+
+        // remove e_kill from 'v_target's disk cycle
+        StructOps.diskEdgeRemove( e_kill, v_target );
+
+        const faces_degenerate          : Array< Face > = [];
+        const faces_duplicate_candidate : Array< Face > = [];
+
+        if( e_kill.loop ){
+
+            // fix the neighboring loops of all loops in e_kill's radial cycle
+            let l_kill = e_kill.loop;
+            
+            do {
+                /* relink loops and fix vertex pointer */
+                if( l_kill.next.vert == v_kill ) l_kill.next.vert = v_target;
+
+                l_kill.next.prev = l_kill.prev;
+                l_kill.prev.next = l_kill.next;
+
+                if( l_kill.face.loop == l_kill ) l_kill.face.loop = l_kill.next;
+
+                // fix len attribute of face
+                l_kill.face.len--;
+                
+                if( kill_degenerate_faces && ( l_kill.face.len < 3 ) ) {
+                    faces_degenerate.push( l_kill.face );
+                }else {
+                    // The duplicate test isn't reliable at this point as `e_splice` might be set,
+                    // so the duplicate test needs to run once the edge has been spliced.
+                    if( kill_duplicate_faces ){
+                        faces_duplicate_candidate.push( l_kill.face );
+                    }
+                }
+
+                l_kill_next = l_kill.radial_next;
+
+                
+                bm.cleanLoop( l_kill );
+
+            } while( ( l_kill = l_kill_next ) != e_kill.loop );
+        }
+
+        // deallocate edge
+        bm.cleanEdge( e_kill );
+
+        // deallocate vertex
+        if( do_del ) bm.cleanVert( v_kill );
+        else         v_kill.edge = null;
+
+        if( check_edge_exists && e_splice ){
+            this.edgeSplice( bm, e_old, e_splice );
+        }
+
+        if( kill_degenerate_faces ){
+            let f_kill: Face | undefined;
+            while( (f_kill = faces_degenerate.pop()) ){
+                this.faceKill( bm, f_kill );
+            }
+        }
+
+        if (kill_duplicate_faces) {
+            let f_kill: Face | undefined;
+            while( (f_kill = faces_duplicate_candidate.pop()) ){
+                if( QueryOps.faceFindDouble( f_kill ) ){
+                    this.faceKill( bm, f_kill );
+                }
+            }
+        }
+
+        return e_old;
+    }
+
+    // BM_edge_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2333
+    static edgeSplice( bm: BMesh, e_dst: Edge, e_src: Edge ): boolean{
+        let l: Loop;
+          
+        if( !e_src.vertExists( e_dst.v1 ) || !e_src.vertExists( e_dst.v2 ) ){
+            // not the same vertices can't splice 
+            // the caller should really make sure this doesn't happen ever
+            // so assert on release builds     
+            return false;
+        }
+        
+        while( e_src.loop ){
+            l = e_src.loop;
+            StructOps.radialLoopRemove( e_src, l ); // bmesh_radial_loop_remove(e_src, l);
+            StructOps.radialLoopAppend( e_dst, l ); // bmesh_radial_loop_append(e_dst, l);
+        }
+    
+        // removes from disks too
+        this.edgeKill( bm, e_src ); // BM_edge_kill(bm, e_src);
+        
+        return true;
+    }
+
+    // bmesh_kernel_split_face_make_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
     // bmesh_kernel_join_vert_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1801
     // bmesh_kernel_join_face_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
     // bmesh_kernel_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2086
@@ -192,7 +311,7 @@ export default class CoreOps{
     // BM_vert_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
     // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135
     // BM_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2238
-    // BM_edge_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2333
+    
     // BM_face_edges_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L806
     // BM_face_verts_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L823
 

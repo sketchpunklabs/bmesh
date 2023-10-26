@@ -109,6 +109,22 @@ export default class StructOps{
     //   return count;
     // }
 
+    // Count how many edges that share a vertex, but count till a max value
+    // bmesh_disk_count_at_most : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_structure.cc#L213
+    static diskCountAtMost( v: Vertex,  count_max: number ): number {
+      let count = 0;
+
+      if( v.edge ){
+        let e_iter: Edge = v.edge;
+        do {
+            count++;
+            if( count == count_max ) break;
+        } while( ( e_iter = e_iter.diskEdgeNext(v) ) != v.edge );
+      }
+
+      return count;
+    }
+
     // #endregion
 
     // #region LOOPS
@@ -139,7 +155,7 @@ export default class StructOps{
         l.edge = e;
     }
 
-    // https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L399
+    // bmesh_radial_loop_remove : https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L399
     static radialLoopRemove( e: Edge, l: Loop ): void{
         if( e != l.edge ){
             console.log( 'Unlikely: if e is non-nullptr, l must be in the radial cycle of e' );
