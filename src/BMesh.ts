@@ -41,8 +41,11 @@ export default class BMesh{
         return loop;
     }
 
-    addFace( ary: Array<Vertex> ){
-        const face = CoreOps.faceCreateVerts( this, ary );        
+    addFace( ary?: Array<Vertex> ): Face{
+        const face = ( ary )
+            ? CoreOps.faceCreateVerts( this, ary )
+            : new Face();
+
         this.faces.push( face );
         return face;
     }

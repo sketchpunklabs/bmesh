@@ -299,6 +299,94 @@ export default class CoreOps{
     }
 
     // bmesh_kernel_split_face_make_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
+    static splitFaceMakeEdge( bm: BMesh, f: Face, l_v1: Loop, l_v2: Loop ){
+        let first_loop_f1 : number;
+
+        let l_iter  : Loop;
+        let l_first : Loop;
+        let l_f1    : Loop = NULLY;
+        let l_f2    : Loop = NULLY;
+        
+        let f1len   : number;
+        let f2len   : number;
+
+        // allocate new edge between v1 and v2
+        const v1   = l_v1.vert;
+        const v2   = l_v2.vert;
+        const e    = bm.addEdge( v1, v2 ) as Edge;
+        const f2   = bm.addFace();
+        l_f1 = bm.addLoop( v2, e, f ); 
+        l_f2 = bm.addLoop( v1, e, f2 );
+
+        l_f1.prev       = l_v2.prev;
+        l_f2.prev       = l_v1.prev;
+        l_v2.prev.next  = l_f1;
+        l_v1.prev.next  = l_f2;
+
+        l_f1.next = l_v1;
+        l_f2.next = l_v2;
+        l_v1.prev = l_f1;
+        l_v2.prev = l_f2;
+
+        // find which of the faces the original first loop is in
+        l_first       = l_f1;
+        l_iter        = l_f1;
+        first_loop_f1 = 0;
+
+        do{
+            if( l_iter == f.loop ) first_loop_f1 = 1;
+        } while( (l_iter = l_iter.next) != l_first );
+
+        if( first_loop_f1 ){
+            // Original first loop was in f1, find a suitable first loop for f2
+            // which is as similar as possible to f1. the order matters for tools
+            // such as dupli-faces.
+            if( f.loop.prev == l_f1 )       f2.loop = l_f2.prev;
+            else if( f.loop.next == l_f1 )  f2.loop = l_f2.next;
+            else                            f2.loop = l_f2;
+        }else{
+            // original first loop was in f2, further do same as above
+            f2.loop = f.loop;
+
+            if( f.loop.prev == l_f2 )       f.loop = l_f1.prev;
+            else if( f.loop.next == l_f2 )  f.loop = l_f1.next;
+            else                            f.loop = l_f1;
+        }
+
+        // validate both loop 
+        // I don't know how many loops are supposed to be in each face at this point! FIXME
+
+        // go through all of f2's loops and make sure they point to it properly
+        l_first = f2.loop;
+        l_iter  = f2.loop;
+        f2len   = 0;
+        do{
+            l_iter.face = f2;
+            f2len++;
+        } while( (l_iter = l_iter.next) != l_first );
+
+        /* link up the new loops into the new edges radial */
+        StructOps.radialLoopAppend( e, l_f1 ); // bmesh_radial_loop_append(e, l_f1);
+        StructOps.radialLoopAppend( e, l_f2 ); // bmesh_radial_loop_append(e, l_f2);
+
+        f2.len  = f2len;
+        f1len   = 0;
+        l_first = f.loop;
+        l_iter  = f.loop;
+        do{
+            f1len++;
+        } while( (l_iter = l_iter.next) != l_first );
+
+        f.len = f1len;
+
+        // CUSTOM: This op wasn't part of blender's fn, added here to make faces more
+        // usable as soon as its created in certain visualization debugging.
+        if( f2.loop ) QueryOps.loopCalcFaceNormal( f2.loop, f2.norm );
+
+        return f2;
+    }
+    
+    
     // bmesh_kernel_join_vert_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1801
     // bmesh_kernel_join_face_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
     // bmesh_kernel_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2086
