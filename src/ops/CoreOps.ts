@@ -469,6 +469,67 @@ export default class CoreOps{
     }
 
     // bmesh_kernel_join_vert_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1801
+    static joinVertKillEdge( bm: BMesh, e_kill: Edge, v_kill: Vertex, do_del=true, check_edge_exists=true, kill_degenerate_faces=true ): Vertex{
+        const faces_degenerate : Array< Face > = [];
+        const v_target = e_kill.getOtherVert( v_kill ) as Vertex;
+
+        if( e_kill.loop ){
+            let l_kill_next : Loop;
+            let l_kill      : Loop = e_kill.loop;
+            const l_first   = e_kill.loop;
+            
+            do{
+                // relink loops and fix vertex pointer
+                if( l_kill.next.vert == v_kill ) l_kill.next.vert = v_target;
+
+                l_kill.next.prev = l_kill.prev;
+                l_kill.prev.next = l_kill.next;
+                if( l_kill.face.loop == l_kill ) l_kill.face.loop = l_kill.next;
+
+                // fix len attribute of face
+                l_kill.face.len--;
+                if( kill_degenerate_faces ){
+                    if( l_kill.face.len < 3 ) faces_degenerate.push( l_kill.face );
+                }
+
+                l_kill_next = l_kill.radial_next;
+                bm.cleanLoop( l_kill );
+
+            } while( (l_kill = l_kill_next) != l_first );
+
+            e_kill.loop = null;
+        }
+
+        this.edgeKill( bm, e_kill );
+
+        if( v_target.edge && v_kill.edge ){
+            let e        : Edge;
+            let e_target : Edge | null = null;
+            while( (e = v_kill.edge) ){
+                
+                if( check_edge_exists ){
+                    e_target = QueryOps.edgeExists( v_target, e.getOtherVert( v_kill ) as Vertex );
+                }
+
+                StructOps.edgeVertSwap( e, v_target, v_kill );
+
+                if( check_edge_exists && e_target ) this.edgeSplice( bm, e_target, e );
+            }
+        }
+
+        if( kill_degenerate_faces ){
+            let f_kill: Face | undefined;
+            while( (f_kill = faces_degenerate.pop()) ){
+                this.faceKill( bm, f_kill );
+            }
+        }
+
+        if( do_del ) bm.cleanVert( v_kill );
+
+        return v_target;
+    }
+
+    
     // bmesh_kernel_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2086
     // bmesh_kernel_edge_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2366
     // BM_vert_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050

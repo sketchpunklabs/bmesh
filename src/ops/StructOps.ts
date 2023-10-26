@@ -68,6 +68,23 @@ export default class StructOps{
         d1.prev = NULLY;
     }
 
+    // bmesh_edge_vert_swap : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_structure.cc#L35
+    static edgeVertSwap( e: Edge, v_dst: Vertex, v_src: Vertex ): void{
+      // swap out loops
+      if( e.loop ){
+        let l_iter = e.loop;
+        do{
+          
+            if( l_iter.vert == v_src )           l_iter.vert      = v_dst;
+          else if( l_iter.next.vert == v_src ) l_iter.next.vert = v_dst;
+
+        } while( (l_iter = l_iter.radial_next) != e.loop );
+      }
+    
+      // swap out edges
+      this.diskVertReplace( e, v_dst, v_src );
+    }
+    
     // #endregion
 
     // #region VERTEX
