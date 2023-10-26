@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
 // #region IMPORTS
-import type Vertex     from '../ds/Vertex';
-import type Edge       from '../ds/Edge';
-import type {DiskLink} from '../ds/Edge';
-import type Loop       from '../ds/Loop';
+import type Vertex      from '../ds/Vertex';
+import type Edge        from '../ds/Edge';
+import type {DiskLink}  from '../ds/Edge';
+import type Loop        from '../ds/Loop';
+
+import { NULLY }        from '../constants';
 // #endregion
 
 export default class StructOps{
@@ -60,10 +62,9 @@ export default class StructOps{
             v.edge = ( e != d1.next )? d1.next : null;
         }
 
-        // @ts-ignore: For GC
-        d1.next = null;
-        // @ts-ignore: For GC
-        d1.prev = null;
+        // For GC
+        d1.next = NULLY;
+        d1.prev = NULLY;
     }
 
     // #endregion
@@ -81,17 +82,13 @@ export default class StructOps{
     static diskVertSwap( e: Edge, v_dst: Vertex, v_src: Vertex ): void{
         if( e.v1 == v_src ){
             e.v1 = v_dst;
-            // @ts-ignore
-            e.v1_disk.next = null;
-            // @ts-ignore
-            e.v1_disk.prev = null;
+            e.v1_disk.next = NULLY;
+            e.v1_disk.prev = NULLY;
         
         }else if( e.v2 == v_src ){
             e.v2 = v_dst;
-            // @ts-ignore
-            e.v2_disk.next = null;
-            // @ts-ignore
-            e.v2_disk.prev = null;
+            e.v2_disk.next = NULLY;
+            e.v2_disk.prev = NULLY;
         }
     }
 
@@ -174,12 +171,10 @@ export default class StructOps{
         // l is no longer in a radial cycle; empty the links
         // to the cycle and the link back to an edge 
 
-        // @ts-ignore: For GC
-        l.radial_next = null;
-        // @ts-ignore: For GC
-        l.radial_prev = null;
-        // @ts-ignore: For GC
-        l.edge        = null;
+        // For GC
+        l.radial_next = NULLY;
+        l.radial_prev = NULLY;
+        l.edge        = NULLY;
     }
 
     // bmesh_radial_loop_unlink : https://github.com/blender/blender/blob/1d9519004a0f13c47ebbe82f6e6a813dc8186e7c/source/blender/bmesh/intern/bmesh_structure.cc#L429
@@ -189,12 +184,9 @@ export default class StructOps{
             l.radial_prev.radial_next = l.radial_next;
         }
         // l is no longer in a radial cycle; empty the links to the cycle and the link back to an edge 
-        // @ts-ignore
-        l.radial_next = null;
-        // @ts-ignore
-        l.radial_prev = null;
-        // @ts-ignore
-        l.e           = null;
+        l.radial_next = NULLY;
+        l.radial_prev = NULLY;
+        l.edge        = NULLY;
     }
 
     // #endregion

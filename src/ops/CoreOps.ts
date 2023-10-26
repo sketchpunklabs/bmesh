@@ -9,6 +9,8 @@ import Face         from '../ds/Face';
 import QueryOps     from '../ops/QueryOps';
 import ConstructOps from '../ops/ConstructOps';
 import StructOps    from '../ops/StructOps';
+
+import { NULLY }    from '../constants';
 // #endregion
 
 export default class CoreOps{
@@ -106,8 +108,7 @@ export default class CoreOps{
 
         // order of 'e_new' verts should match 'e' (so extruded faces don't flip)
         const v_new: Vertex = bm.addVertex( midPos );
-        // @ts-ignore Very unlikely to return null, only if the Two verts are the same
-        const e_new: Edge   = bm.addEdge( tv, v_new );
+        const e_new: Edge   = bm.addEdge( tv, v_new ) as Edge; // Very unlikely to return null, only if the Two verts are the same
 
         StructOps.diskEdgeRemove( e_new, tv );
         StructOps.diskEdgeRemove( e_new, v_new );
@@ -136,13 +137,11 @@ export default class CoreOps{
                 l_next = ( l_next != l_next.radial_next )? l_next.radial_next : null;
                 StructOps.radialLoopInlink( l );
                 
-                // @ts-ignore
-                l_new = this.loopCreate( v_new, null, l.face );
+                l_new = bm.addLoop( v_new, NULLY, l.face );
                 l_new.prev      = l;
                 l_new.next      = l.next;
                 l_new.prev.next = l_new;
                 l_new.next.prev = l_new;
-                bm.loops.push( l_new );
         
                 // assign the correct edge to the correct loop
                 if( QueryOps.vertsInEdge( l_new.vert, l_new.next.vert, e ) ){
@@ -152,10 +151,8 @@ export default class CoreOps{
                     // append l into e_new's rad cycle
                     if( is_first ){
                         is_first      = false;
-                        // @ts-ignore
-                        l.radial_next = null;
-                        // @ts-ignore
-                        l.radial_prev = null;
+                        l.radial_next = NULLY;
+                        l.radial_prev = NULLY;
                     }
 
                     StructOps.radialLoopAppend( l_new.edge, l_new );
@@ -168,10 +165,8 @@ export default class CoreOps{
                     // append l into e_new's rad cycle
                     if (is_first) {
                         is_first      = false;
-                        // @ts-ignore
-                        l.radial_next = null;
-                        // @ts-ignore
-                        l.radial_prev = null;
+                        l.radial_next = NULLY;
+                        l.radial_prev = NULLY;
                     }
             
                     StructOps.radialLoopAppend( l_new.edge, l_new );
@@ -311,7 +306,6 @@ export default class CoreOps{
     // BM_vert_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
     // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135
     // BM_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2238
-    
     // BM_face_edges_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L806
     // BM_face_verts_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L823
 
