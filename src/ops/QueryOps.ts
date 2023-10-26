@@ -30,7 +30,26 @@ export default class QueryOps{
         }
         return null;
     }
+
+    // BM_edge_is_manifold : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query_inline.h#L75
+    static edgeIsManifold( e: Edge ): boolean{
+      const l = e.loop;
+      return !!( l && ( l.radial_next != l ) &&     // not 0 or 1 face users
+              ( l.radial_next.radial_next == l ) ); // 2 face users
+    }
+
+    // BM_edge_in_face : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L426
+    static edgeInFace( e: Edge, f: Face ): boolean{
+      if( e.loop ){
+        let l_iter = e.loop;
+        do {
+          if (l_iter.face == f ) return true;
+        } while( (l_iter = l_iter.radial_next) != e.loop );
+      }
     
+      return false;
+    }
+
     // #endregion
 
     // #region FACES / LOOPS
@@ -130,6 +149,32 @@ export default class QueryOps{
             }
         }
         return null;
+    }
+
+    // BM_face_edge_share_loop : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L1123
+    static faceEdgeShareLoop( f: Face, e: Edge ): Loop | null{
+        if( e.loop ){
+            let l_iter = e.loop;
+            do{
+                
+                if( l_iter.face == f ) return l_iter;
+
+            } while( (l_iter = l_iter.radial_next) != e.loop );
+        }
+
+        return null;
+    }
+
+    // BM_face_share_edge_count : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L976
+    static faceShareEdgeCount( f_a: Face, f_b: Face ){
+      let l_iter  = f_a.loop;
+      let count   = 0;
+
+      do {
+        if( this.edgeInFace(l_iter.edge, f_b) ) count++;
+      } while( (l_iter = l_iter.next) != f_a.loop );
+    
+      return count;
     }
 
     // #endregion

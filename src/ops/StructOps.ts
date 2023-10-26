@@ -5,6 +5,7 @@ import type Vertex      from '../ds/Vertex';
 import type Edge        from '../ds/Edge';
 import type {DiskLink}  from '../ds/Edge';
 import type Loop        from '../ds/Loop';
+import type Face        from '../ds/Face';
 
 import { NULLY }        from '../constants';
 // #endregion
@@ -96,9 +97,9 @@ export default class StructOps{
     // int bmesh_disk_count(const BMVert *v)
     // {
     //   int count = 0;
-    //   if (v->e) {
+    //   if (v.e) {
     //     BMEdge *e_first, *e_iter;
-    //     e_iter = e_first = v->e;
+    //     e_iter = e_first = v.e;
     //     do {
     //       count++;
     //     } while ((e_iter = bmesh_disk_edge_next(e_iter, v)) != e_first);
@@ -187,6 +188,35 @@ export default class StructOps{
         l.radial_next = NULLY;
         l.radial_prev = NULLY;
         l.edge        = NULLY;
+    }
+
+    // bmesh_loop_validate : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_structure.cc#L536
+    static loopValidate( f: Face ): boolean{
+        if( !f.loop ) return false;
+        
+        const len     = f.len;
+        const l_first = f.loop;
+        
+        let i      : number;
+        let l_iter : Loop;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Validate that the face loop cycle is the length specified by f.len
+        for( i=1, l_iter = l_first.next; i < len; i++, l_iter = l_iter.next ){
+            if( (l_iter.face != f) || (l_iter == l_first) ) return false;
+        }
+
+        if( l_iter != l_first ) return false;
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Validate the loop.prev links also form a cycle of length f.len
+        for( i=1, l_iter = l_first.prev; i < len; i++, l_iter = l_iter.prev ){
+            if( l_iter == l_first ) return false;
+        }
+
+        if( l_iter != l_first ) return false;
+        
+        return true;
     }
 
     // #endregion

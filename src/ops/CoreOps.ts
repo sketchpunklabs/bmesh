@@ -386,9 +386,89 @@ export default class CoreOps{
         return f2;
     }
     
-    
-    // bmesh_kernel_join_vert_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1801
     // bmesh_kernel_join_face_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
+    static joinFaceKillEdge( bm: BMesh, f1: Face, f2: Face, e: Edge ): Face | null{
+        let l_f1: Loop | null = null;
+        let l_f2: Loop | null = null;
+        let newlen = 0;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // can't join a face to itself
+        if( f1 == f2 ) return null;
+        
+        // validate that edge is 2-manifold edge
+        if( !QueryOps.edgeIsManifold( e ) ){
+            console.log( 'Error: Edge is not a 2-manifold edge' );
+            return null;
+        }
+
+        if( !(
+            (l_f1 = QueryOps.faceEdgeShareLoop(f1, e)) && 
+            (l_f2 = QueryOps.faceEdgeShareLoop(f2, e))
+        )) return null;
+        
+        // validate direction of f2's loop cycle is compatible
+        if( l_f1.vert == l_f2.vert ){
+            console.log( 'Error: Face windings are not compatible' );
+            return null;
+        }
+        
+        // validate that for each face, each vertex has another edge in its disk cycle that is not e, and not shared.
+        if( QueryOps.edgeInFace( l_f1.next.edge, f2 ) || QueryOps.edgeInFace( l_f1.prev.edge, f2 ) ||
+            QueryOps.edgeInFace( l_f2.next.edge, f1 ) || QueryOps.edgeInFace( l_f2.prev.edge, f1 ) ){
+
+            console.log( 'Error: Faces share to many vertices?' );
+            return null;
+        }
+        
+        // validate only one shared edge
+        if( QueryOps.faceShareEdgeCount( f1, f2 ) > 1 ){
+            console.log( 'Error: Faces share more then 1 edge' );
+            return null;
+        }
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        /* join the two loop */
+        l_f1.prev.next = l_f2.next;
+        l_f2.next.prev = l_f1.prev;
+        
+        l_f1.next.prev = l_f2.prev;
+        l_f2.prev.next = l_f1.next;
+        
+        // If `l_f1` was base-loop, make `l_f1.next` the base.
+        if( f1.loop == l_f1 ) f1.loop = l_f1.next;
+        
+        // increase length of f1
+        f1.len += (f2.len - 2);
+        
+        // make sure each loop points to the proper face
+        newlen = f1.len;
+        for( let i=0, l_iter=f1.loop; i < newlen; i++, l_iter = l_iter.next ){
+            l_iter.face = f1;
+        }
+        
+        // remove edge from the disk cycle of its two vertices
+        StructOps.diskEdgeRemove(l_f1.edge, l_f1.edge.v1);
+        StructOps.diskEdgeRemove(l_f1.edge, l_f1.edge.v2);
+        
+        // deallocate edge and its two loops as well as f2
+        bm.cleanEdge( l_f1.edge );
+        bm.cleanLoop( l_f1 );
+        bm.cleanLoop( l_f2 );
+        bm.cleanFace( f2 );
+        
+        // validate the new loop cycle
+        if( !StructOps.loopValidate( f1 ) ){
+            console.log( 'Error: New Face loop didnt pass validation' );
+        }
+
+        // CUSTOM : Compute normal for modified face
+        if( f1.loop ) QueryOps.loopCalcFaceNormal( f1.loop, f1.norm );
+        
+        return f1;
+    }
+
+    // bmesh_kernel_join_vert_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1801
     // bmesh_kernel_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2086
     // bmesh_kernel_edge_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2366
     // BM_vert_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
@@ -455,7 +535,7 @@ export default class CoreOps{
             
             l_iter.edge = e_prev;
 
-            // SWAP(BMLoop *, l_iter->next, l_iter->prev);
+            // SWAP(BMLoop *, l_iter.next, l_iter.prev);
             tmp         = l_iter.prev;
             l_iter.prev = l_iter.next;
             l_iter.next = tmp;

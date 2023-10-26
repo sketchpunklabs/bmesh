@@ -1,0 +1,145 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+
+import { BMesh, CoreOps } from '@bmesh';
+import vec3     from '../../src/maths/vec3.ts';
+//#endregion
+
+//#region MAIN
+let App   = useDarkScene( useThreeWebGL2() );
+let Ref   = {
+    loop : null,
+};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    Debug = await useVisualDebug( App );
+    App.sphericalLook( 45, 30, 6 );
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const mesh  = new BMesh();
+    const v0    = mesh.addVertex( [-2,0,-1] );
+    const v1    = mesh.addVertex( [ 0,0,-1] );
+    const v2    = mesh.addVertex( [ 2,0,-1] );
+    const v3    = mesh.addVertex( [-2,0, 1] );
+    const v4    = mesh.addVertex( [ 0,0, 1] );
+    const v5    = mesh.addVertex( [ 2,0, 1] );
+
+    // const v6    = mesh.addVertex( [ 0,1, -1] );
+    // const v7    = mesh.addVertex( [ 0,1, 1] );
+
+    const f0    = mesh.addFace( [ v0, v3, v4, v1 ] );
+    const f1    = mesh.addFace( [ v1, v4, v5, v2 ] );
+    // const f2    = mesh.addFace( [ v1, v6, v7, v4 ] );
+
+    Ref.mesh = mesh;
+    console.log( mesh );
+
+    const edge = mesh.edges[ 2 ];    
+    CoreOps.joinFaceKillEdge( mesh, f0, f1, edge );
+
+    console.log( mesh );
+
+    // render();
+    renderFace( f0 );
+    // renderFace( f1, true );
+    
+    // Debug.pnt.add( edge.v1.pos, 0xffff00, 7, 2 );
+    // Debug.pnt.add( edge.v2.pos, 0x00ffff, 7, 2 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.renderLoop();
+    // App.createRenderLoop( onPreRender ).start();
+});
+
+function render(){
+    Debug.pnt.reset();
+    Debug.ln.reset();
+
+    const mesh = Ref.mesh;
+
+    for( const v of mesh.vertices ) Debug.pnt.add( v.pos, 0x00ff00, 3 );
+    for( const e of mesh.edges )    Debug.ln.add( e.v1.pos, e.v2.pos, 0x00ffff );
+}
+
+function renderFace( f, flip=false ){
+    // Debug.pnt.reset();
+    // Debug.ln.reset();
+
+    for( const l of f.loop.iterNext() ){
+        Debug.pnt.add( l.vert.pos, 0x00ff00, 3 );
+        Debug.ln.add( l.edge.v1.pos, l.edge.v2.pos, 0x00ffff );
+    }
+
+    renderFaceNorm( f );
+    renderDir( f, flip );
+}
+
+function renderFaceNorm( f ){
+    let iter = f.loop;
+    let x    = 0;
+    let y    = 0;
+    let z    = 0;
+    let cnt  = 0;
+    do{
+        x += iter.vert.pos[0];
+        y += iter.vert.pos[1];
+        z += iter.vert.pos[2];
+        cnt++;
+    } while( ( iter = iter.next ) != f.loop );
+
+    x /= cnt;
+    y /= cnt;
+    z /= cnt;
+
+    const s = 0.4;
+    const a = [x,y,z];
+    const b = [
+        x + f.norm[0] * s, 
+        y + f.norm[1] * s, 
+        z + f.norm[2] * s,
+    ];
+
+    Debug.pnt.add( a, 0xffff00, 3 );
+    Debug.ln.add( a, b, 0xffff00 );
+}
+
+function renderDir( f, flip=false ){
+    let a   = [0,0,0];
+    let b   = [0,0,0];
+    let dir = [0,0,0];
+    let n   = vec3.scale( f.norm, 0.2 );
+    let s   = 0.2;
+    let len;
+
+    if( flip ){
+        n[0] = -n[0];
+        n[1] = -n[1];
+        n[2] = -n[2];
+    }
+
+    for( const l of f.loop.iterNext() ){
+        vec3.add( l.vert.pos, n, a );
+        vec3.add( l.next.vert.pos, n, b );
+        vec3.sub( b, a, dir );
+        len = vec3.len( dir ) * s;
+        vec3.norm( dir, dir );
+
+        vec3.scaleThenAdd( dir, len, a, a );
+        vec3.scaleThenAdd( dir, -len, b, b );
+
+        Debug.pnt.add( a, 0xFFAD00, 3 );
+        Debug.ln.add( a, b, 0xFFAD00 );
+        
+        // Debug.pnt.add( l.vert.pos, 0x00ff00, 3 );
+        // Debug.ln.add( l.edge.v1.pos, l.edge.v2.pos, 0x00ffff );
+    }
+}
+
+//#endregion
+</script></body></html>
