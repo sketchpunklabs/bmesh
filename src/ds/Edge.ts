@@ -43,7 +43,7 @@ export class DiskLink{
 export default class Edge{
 
     // #region MAIN
-    id      !: number;
+    id       : string = window.crypto.randomUUID();
     v1      !: Vertex;
     v2      !: Vertex;
     loop     : Loop | null = null; // First loop, use to loop over all faces this edge is part of
@@ -67,9 +67,8 @@ export default class Edge{
     }
 
     // bmesh_disk_edge_next : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/bmesh_class.h#L643
-    diskEdgeNext( v: Vertex ): Edge{
-        return ( v === this.v1 )? this.v1_disk.next : this.v2_disk.next; 
-    }
+    diskEdgeNext( v: Vertex ): Edge{ return ( v === this.v1 )? this.v1_disk.next : this.v2_disk.next; }
+    diskEdgePrev( v: Vertex ): Edge{ return ( v === this.v1 )? this.v1_disk.prev : this.v2_disk.prev;  }
 
     // BM_vert_in_edge : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_query_inline.h#L19
     vertExists( v: Vertex ): boolean{ return ( this.v1 === v || this.v2 === v ); }

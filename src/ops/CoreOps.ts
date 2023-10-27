@@ -529,10 +529,181 @@ export default class CoreOps{
         return v_target;
     }
 
-    
     // bmesh_kernel_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2086
+    // static vertSeparate( bm: BMesh, v: Vertex ): Array< Vertex >{ // , r_vout: Array<Vertex>, r_vout_len,  copy_select = false
+    //     let v_edges_num = 0;
+        
+    //     /* Detailed notes on array use since this is stack memory, we have to be careful */
+        
+    //     /* newly created vertices, only use when 'r_vout' is set
+    //     * (total size will be number of fans) */
+    //     //   BLI_SMALLSTACK_DECLARE(verts_new, BMVert *);
+    //     const verts_new : Array<Vertex> = [];
+    //     /* fill with edges from the face-fan, clearing on completion
+    //     * (total size will be max fan edge count) */
+    //     //   BLI_SMALLSTACK_DECLARE(edges, BMEdge *);
+    //     const edges : Array<Edge> = [];
+    //     /* temp store edges to walk over when filling 'edges',
+    //     * (total size will be max radial edges of any edge) */
+    //     //   BLI_SMALLSTACK_DECLARE(edges_search, BMEdge *);
+    //     const edges_search : Array<Edge> = [];
+        
+    //     // number of resulting verts, include self
+    //     let verts_num = 1;
+    //     // track the total number of edges handled, so we know when we've found the last fan
+    //     let edges_found = 0;
+        
+    //     // #define EDGE_VISIT _FLAG_WALK
+    
+    //     // count and flag at once 
+    //     if( v.edge ){
+            
+    //         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    //         let e_iter = v.edge;
+    //         // let e_first = v.edge;
+
+    //         do{
+    //             v_edges_num += 1;
+    //         //   BLI_assert(!BM_ELEM_API_FLAG_TEST(e_iter, EDGE_VISIT));
+    //         //   BM_ELEM_API_FLAG_ENABLE(e_iter, EDGE_VISIT);
+    //         } while( (e_iter = e_iter.diskEdgeNext( v )) != v.edge );
+            
+    //         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    //         while (true) {
+    //             /* Considering only edges and faces incident on vertex v, walk
+    //             * the edges & collect in the 'edges' list for splitting */
+            
+    //             let e : Edge | undefined = v.edge;
+    //                 //   BM_ELEM_API_FLAG_DISABLE(e, EDGE_VISIT);
+            
+    //             do{
+    //                 // BLI_assert(!BM_ELEM_API_FLAG_TEST(e, EDGE_VISIT));
+    //                 edges.push( e ); // BLI_SMALLSTACK_PUSH(edges, e);
+    //                 edges_found += 1;
+            
+    //                 // if( e.loop ){
+    //                 //     let l_iter =  e.loop;
+    //                 //     let l_first = e.loop;
+
+    //                 //     do{
+    //                 //         let l_adjacent = ( l_iter.vert == v ) ? l_iter.prev : l_iter.next;
+                            
+    //                 //         // BLI_assert(BM_vert_in_edge(l_adjacent.e, v));
+    //                 //         // if (BM_ELEM_API_FLAG_TEST(l_adjacent.e, EDGE_VISIT)) {
+    //                 //         //   BM_ELEM_API_FLAG_DISABLE(l_adjacent.e, EDGE_VISIT);
+    //                 //         //   BLI_SMALLSTACK_PUSH(edges_search, l_adjacent.e);
+    //                 //         // }
+
+    //                 //     } while( (l_iter = l_iter.radial_next) != l_first );
+    //                 // }
+    //             } while( (e = edges_search.pop()) );
+        
+    //             /* now we have all edges connected to 'v.e' */
+            
+            
+    //             if (edges_found == v_edges_num) {
+    //                 /* We're done! The remaining edges in 'edges' form the last fan,
+    //                 * which can be left as is.
+    //                 * if 'edges' were alloc'd it'd be freed here. */
+    //                 break;
+    //             }
+        
+    //             let v_new : Vertex;
+        
+    //             //   v_new = BM_vert_create(bm, v.co, v, BM_CREATE_NOP);
+    //             v_new = bm.addVertex( v.pos );
+    //             //   if (copy_select) {BM_elem_select_copy(bm, v_new, v);
+        
+    //             while( (e = edges.pop()) ){
+    //                 StructOps.edgeVertSwap( e, v_new, v ); //e, v_new, v
+    //             }
+        
+    //             if (r_vout) {
+    //                 // BLI_SMALLSTACK_PUSH(verts_new, v_new);
+    //                 verts_new.push( v_new );
+    //             }
+                
+    //             verts_num += 1;
+    //         }
+    //     }
+    
+    //     // #undef EDGE_VISIT
+    
+    //     /* flags are clean now, handle return values */
+    //     if( r_vout_len != null ) r_vout_len = verts_num;
+    
+    //     if( r_vout != nullptr ){
+    //         BMVert **verts;
+        
+    //         verts = static_cast<BMVert **>(MEM_mallocN(sizeof(BMVert *) * verts_num, __func__));
+    //         *r_vout = verts;
+        
+    //         verts[0] = v;
+    //         BLI_SMALLSTACK_AS_TABLE(verts_new, &verts[1]);
+    //     }
+    // }
+    
+    
     // bmesh_kernel_edge_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2366
-    // BM_vert_splice: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
+    // static edgeSeparate( bm: BMesh, e: Edge, l_sep: Loop ){{
+    //     // BLI_assert(l_sep.e == e);
+    //     // BLI_assert(e.l);
+
+    //     if( QueryOps.edgeIsBoundary( e ) ) return; // no cut required
+
+    //     if( l_sep == e.loop ) e.loop = l_sep.radial_next;
+
+    //     let e_new = bm.addEdge( e.v1, e.v2 ); // BM_edge_create(bm, e.v1, e.v2, e, BM_CREATE_NOP );
+
+    //     if( e_new ){
+    //         StructOps.radialLoopRemove( e, l_sep ); // bmesh_radial_loop_remove(e, l_sep);
+    //         StructOps.radialLoopAppend( e_new, l_sep ); // bmesh_radial_loop_append(e_new, l_sep);
+    //         l_sep.edge = e_new;
+    //     }
+
+    //     // if (copy_select) { BM_elem_select_copy(bm, e_new, e); }
+
+    //     // BLI_assert(bmesh_radial_length(e.l) == radlen - 1);
+    //     // BLI_assert(bmesh_radial_length(e_new.l) == 1);
+
+    //     // BM_CHECK_ELEMENT(e_new);
+    //     // BM_CHECK_ELEMENT(e);
+    // }
+
+    
+    // BM_vert_splice : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
+    // Merges two verts into one, warning This doesn't work for collapsing edges,
+    // where v and vtarget are connected by an edge
+    // NOTE: Not sure if this works correctly, In my test, it does not clean up
+    // the faces & edges affected by v_src. This Op may need to be executed
+    // with another to work properly.
+    static vertSplice( bm: BMesh, v_dst: Vertex, v_src: Vertex ): boolean{
+        let e: Edge | null;
+        
+        // verts already spliced 
+        if( v_src == v_dst )  return false;
+        
+        // CUSTOM: Assuming that vert splices should not be used on points that share faces
+        // So exit out the function if they do share.
+        // BLI_assert(BM_vert_pair_share_face_check(v_src, v_dst) == false);
+        if( QueryOps.vertPairShareFaceCheck( v_src, v_dst ) ) return false;
+        
+        
+        // move all the edges from 'v_src' disk to 'v_dst' 
+        // bmesh_disk_edge_remove will modify v_src.edge if the edge passed to it is the same
+        // Thats how this loop will continue & end
+        while( (e = v_src.edge) ) {
+            StructOps.edgeVertSwap( e, v_dst, v_src );  // bmesh_edge_vert_swap(e, v_dst, v_src);
+            // BLI_assert(e.v1 != e.v2);
+        }
+            
+        // 'v_src' is unused now, and can be killed
+        bm.cleanVert( v_src ); //BM_vert_kill(bm, v_src);
+
+        return true;
+    }
+
+
     // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135
     // BM_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2238
     // BM_face_edges_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L806

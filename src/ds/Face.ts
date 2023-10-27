@@ -35,6 +35,7 @@ typedef struct BMFace {
 import type Loop from './Loop';
 
 export default class Face {
+    id      : string            = window.crypto.randomUUID();
     loop   !: Loop;                         // First loop that forms this face.
     len     : number            = 0;        // Length of circular linked list
     norm    : Array< number >   = [0,0,0];  // Face Normal

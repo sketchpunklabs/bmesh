@@ -40,14 +40,20 @@ export default class QueryOps{
 
     // BM_edge_in_face : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L426
     static edgeInFace( e: Edge, f: Face ): boolean{
-      if( e.loop ){
-        let l_iter = e.loop;
-        do {
-          if (l_iter.face == f ) return true;
-        } while( (l_iter = l_iter.radial_next) != e.loop );
-      }
-    
-      return false;
+        if( e.loop ){
+            let l_iter = e.loop;
+            do {
+                if (l_iter.face == f ) return true;
+            } while( (l_iter = l_iter.radial_next) != e.loop );
+        }
+        
+        return false;
+    }
+
+    // BM_edge_is_boundary : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query_inline.h#L107
+    static edgeIsBoundary( e: Edge ): boolean{
+        const l = e.loop;
+        return !!( l && ( l.radial_next == l ) );
     }
 
     // #endregion
@@ -184,6 +190,40 @@ export default class QueryOps{
     // BM_verts_in_edge : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query_inline.h#L39
     static vertsInEdge( v1: Vertex, v2: Vertex, e: Edge ): boolean{
         return ((e.v1 == v1 && e.v2 == v2) || (e.v1 == v2 && e.v2 == v1));
+    }
+
+    // BM_vert_in_face : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L312
+    static vertInFace( v: Vertex, f: Face ): boolean{
+        let l_iter = f.loop;
+
+        do{
+            if( l_iter.vert == v ) return true;
+        } while( (l_iter = l_iter.next) != f.loop );
+
+        return false;
+    }
+
+    // BM_vert_pair_share_face_check : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L105
+    static vertPairShareFaceCheck( v_a: Vertex, v_b: Vertex ): boolean{
+        if( v_a.edge && v_b.edge ){
+
+            let lIter : Loop;
+            let eIter = v_a.edge;
+            do{
+                
+                if( eIter.loop ){
+                    lIter = eIter.loop;
+                    do{
+                        
+                        if( this.vertInFace( v_b, lIter.face ) ) return true;
+
+                    } while( (lIter = lIter.radial_next) !== eIter.loop );
+                }
+
+            } while( (eIter = eIter.diskEdgeNext( v_a )) !== v_a.edge );
+        }
+    
+      return false;
     }
 
     // #endregion

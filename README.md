@@ -15,4 +15,5 @@ This project's focus is port of Blender's BMesh Data Structure & Operations into
 
 ### Resources ###
 - [Blender's Design Document of BMesh](https://wiki.blender.org/wiki/Source/Modeling/BMesh/Design)
+- [BMesh Python API](https://docs.blender.org/api/current/bmesh.html)
 - [Github location of Blender's BMesh](https://github.com/blender/blender/tree/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern)
