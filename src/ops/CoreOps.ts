@@ -95,6 +95,316 @@ export default class CoreOps{
         bm.cleanFace( f );
     }
 
+    // bmesh_kernel_split_face_make_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
+    static splitFaceMakeEdge( bm: BMesh, f: Face, l_v1: Loop, l_v2: Loop ){
+        let first_loop_f1 : number;
+
+        let l_iter  : Loop;
+        let l_first : Loop;
+        let l_f1    : Loop = NULLY;
+        let l_f2    : Loop = NULLY;
+        
+        let f1len   : number;
+        let f2len   : number;
+
+        // allocate new edge between v1 and v2
+        const v1   = l_v1.vert;
+        const v2   = l_v2.vert;
+        const e    = bm.addEdge( v1, v2 ) as Edge;
+        const f2   = bm.addFace();
+        l_f1 = bm.addLoop( v2, e, f ); 
+        l_f2 = bm.addLoop( v1, e, f2 );
+
+        l_f1.prev       = l_v2.prev;
+        l_f2.prev       = l_v1.prev;
+        l_v2.prev.next  = l_f1;
+        l_v1.prev.next  = l_f2;
+
+        l_f1.next = l_v1;
+        l_f2.next = l_v2;
+        l_v1.prev = l_f1;
+        l_v2.prev = l_f2;
+
+        // find which of the faces the original first loop is in
+        l_first       = l_f1;
+        l_iter        = l_f1;
+        first_loop_f1 = 0;
+
+        do{
+            if( l_iter == f.loop ) first_loop_f1 = 1;
+        } while( (l_iter = l_iter.next) != l_first );
+
+        if( first_loop_f1 ){
+            // Original first loop was in f1, find a suitable first loop for f2
+            // which is as similar as possible to f1. the order matters for tools
+            // such as dupli-faces.
+            if( f.loop.prev == l_f1 )       f2.loop = l_f2.prev;
+            else if( f.loop.next == l_f1 )  f2.loop = l_f2.next;
+            else                            f2.loop = l_f2;
+        }else{
+            // original first loop was in f2, further do same as above
+            f2.loop = f.loop;
+
+            if( f.loop.prev == l_f2 )       f.loop = l_f1.prev;
+            else if( f.loop.next == l_f2 )  f.loop = l_f1.next;
+            else                            f.loop = l_f1;
+        }
+
+        // validate both loop 
+        // I don't know how many loops are supposed to be in each face at this point! FIXME
+
+        // go through all of f2's loops and make sure they point to it properly
+        l_first = f2.loop;
+        l_iter  = f2.loop;
+        f2len   = 0;
+        do{
+            l_iter.face = f2;
+            f2len++;
+        } while( (l_iter = l_iter.next) != l_first );
+
+        /* link up the new loops into the new edges radial */
+        StructOps.radialLoopAppend( e, l_f1 ); // bmesh_radial_loop_append(e, l_f1);
+        StructOps.radialLoopAppend( e, l_f2 ); // bmesh_radial_loop_append(e, l_f2);
+
+        f2.len  = f2len;
+        f1len   = 0;
+        l_first = f.loop;
+        l_iter  = f.loop;
+        do{
+            f1len++;
+        } while( (l_iter = l_iter.next) != l_first );
+
+        f.len = f1len;
+
+        // CUSTOM: This op wasn't part of blender's fn, added here to make faces more
+        // usable as soon as its created in certain visualization debugging.
+        if( f2.loop ) QueryOps.loopCalcFaceNormal( f2.loop, f2.norm );
+
+        return f2;
+    }
+    
+    // bmesh_kernel_join_face_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
+    static joinFaceKillEdge( bm: BMesh, f1: Face, f2: Face, e: Edge ): Face | null{
+        let l_f1: Loop | null = null;
+        let l_f2: Loop | null = null;
+        let newlen = 0;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // can't join a face to itself
+        if( f1 == f2 ) return null;
+        
+        // validate that edge is 2-manifold edge
+        if( !QueryOps.edgeIsManifold( e ) ){
+            console.log( 'Error: Edge is not a 2-manifold edge' );
+            return null;
+        }
+
+        if( !(
+            (l_f1 = QueryOps.faceEdgeShareLoop(f1, e)) && 
+            (l_f2 = QueryOps.faceEdgeShareLoop(f2, e))
+        )) return null;
+        
+        // validate direction of f2's loop cycle is compatible
+        if( l_f1.vert == l_f2.vert ){
+            console.log( 'Error: Face windings are not compatible' );
+            return null;
+        }
+        
+        // validate that for each face, each vertex has another edge in its disk cycle that is not e, and not shared.
+        if( QueryOps.edgeInFace( l_f1.next.edge, f2 ) || QueryOps.edgeInFace( l_f1.prev.edge, f2 ) ||
+            QueryOps.edgeInFace( l_f2.next.edge, f1 ) || QueryOps.edgeInFace( l_f2.prev.edge, f1 ) ){
+
+            console.log( 'Error: Faces share to many vertices?' );
+            return null;
+        }
+        
+        // validate only one shared edge
+        if( QueryOps.faceShareEdgeCount( f1, f2 ) > 1 ){
+            console.log( 'Error: Faces share more then 1 edge' );
+            return null;
+        }
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        /* join the two loop */
+        l_f1.prev.next = l_f2.next;
+        l_f2.next.prev = l_f1.prev;
+        
+        l_f1.next.prev = l_f2.prev;
+        l_f2.prev.next = l_f1.next;
+        
+        // If `l_f1` was base-loop, make `l_f1.next` the base.
+        if( f1.loop == l_f1 ) f1.loop = l_f1.next;
+        
+        // increase length of f1
+        f1.len += (f2.len - 2);
+        
+        // make sure each loop points to the proper face
+        newlen = f1.len;
+        for( let i=0, l_iter=f1.loop; i < newlen; i++, l_iter = l_iter.next ){
+            l_iter.face = f1;
+        }
+        
+        // remove edge from the disk cycle of its two vertices
+        StructOps.diskEdgeRemove(l_f1.edge, l_f1.edge.v1);
+        StructOps.diskEdgeRemove(l_f1.edge, l_f1.edge.v2);
+        
+        // deallocate edge and its two loops as well as f2
+        bm.cleanEdge( l_f1.edge );
+        bm.cleanLoop( l_f1 );
+        bm.cleanLoop( l_f2 );
+        bm.cleanFace( f2 );
+        
+        // validate the new loop cycle
+        if( !StructOps.loopValidate( f1 ) ){
+            console.log( 'Error: New Face loop didnt pass validation' );
+        }
+
+        // CUSTOM : Compute normal for modified face
+        if( f1.loop ) QueryOps.loopCalcFaceNormal( f1.loop, f1.norm );
+        
+        return f1;
+    }
+
+    // BM_face_verts_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L823
+    static faceVertsKill( bm: BMesh, f: Face ): void{
+        const verts: Array< Vertex > = [];        
+        let l_iter = f.loop;
+
+        do{
+            verts.push( l_iter.vert );
+        } while( (l_iter = l_iter.next) != f.loop );
+        
+        for( let i=0; i < f.len; i++ ){
+            this.vertKill( bm, verts[i] );
+        }
+    }
+
+    // BM_face_edges_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L806
+    static faceEdgesKill( bm: BMesh, f: Face ): void{    
+        const edges: Array< Edge > = []; 
+        let l_iter = f.loop;
+        
+        do{
+            edges.push( l_iter.edge );
+        } while( (l_iter = l_iter.next) != f.loop );
+        
+        for( let i=0; i < f.len; i++ ){
+            this.edgeKill( bm, edges[i] );
+        }
+    }
+
+    // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135    
+
+    // #endregion
+
+    // #region LOOPS
+
+    // bm_loop_create : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L199
+    static loopCreate( v: Vertex, e: Edge, f: Face ){
+        const l = new Loop();
+        l.vert  = v;
+        l.edge  = e;
+        l.face  = f;
+        
+        return l;
+    }
+
+    // bmesh_kernel_loop_reverse : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L977
+    static loopReverse( f: Face ){
+        const initLoop: Loop = f.loop;
+
+        // track previous cycles radial state
+        let e_prev: Edge              = initLoop.prev.edge;
+        let l_prev_radial_next: Loop  = initLoop.prev.radial_next;
+        let l_prev_radial_prev: Loop  = initLoop.prev.radial_prev;
+        let is_prev_boundary: boolean = ( l_prev_radial_next == l_prev_radial_next.radial_next );
+
+        let l_iter: Loop = initLoop;
+        let e_iter: Edge;
+        let tmp   : Loop;
+
+        let l_iter_radial_next: Loop;
+        let l_iter_radial_prev: Loop;
+        let is_iter_boundary  : boolean;
+
+        do{
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            e_iter             = l_iter.edge;
+            l_iter_radial_next = l_iter.radial_next;
+            l_iter_radial_prev = l_iter.radial_prev;
+            is_iter_boundary   = ( l_iter_radial_next == l_iter_radial_next.radial_next )
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // inline loop reversal
+            if( is_prev_boundary ){
+                // boundary
+                l_iter.radial_next = l_iter;
+                l_iter.radial_prev = l_iter;
+            }else{
+                // non-boundary, replace radial links
+                l_iter.radial_next              = l_prev_radial_next;
+                l_iter.radial_prev              = l_prev_radial_prev;
+                l_prev_radial_next.radial_prev  = l_iter;
+                l_prev_radial_prev.radial_next  = l_iter;
+            }
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            if( e_iter.loop == l_iter ) e_iter.loop = l_iter.next;
+            
+            l_iter.edge = e_prev;
+
+            // SWAP(BMLoop *, l_iter.next, l_iter.prev);
+            tmp         = l_iter.prev;
+            l_iter.prev = l_iter.next;
+            l_iter.next = tmp;
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            e_prev              = e_iter;
+            l_prev_radial_next  = l_iter_radial_next;
+            l_prev_radial_prev  = l_iter_radial_prev;
+            is_prev_boundary    = is_iter_boundary;
+
+            // step to next ( now swapped )
+        } while ( (l_iter = l_iter.prev) != initLoop );
+
+        // CUSTOM: This op wasn't part of blender's fn, added here to make faces more
+        // usable as soon as its created in certain visualization debugging.
+        if( f.loop ) QueryOps.loopCalcFaceNormal( f.loop, f.norm );
+    }
+
+    // #endregion
+
+    // #region EDGES
+
+    // Create new edge from two vertices
+    // BM_edge_create : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L128
+    static edgeCreate( v1: Vertex, v2: Vertex ): Edge | null {
+        if( v1 === v2 ){ console.log( 'edge create : vertices the same' ); return null; }
+
+        // Note: Taking this part out. Opting to using edgeExists in BMesh.addEdge
+        // instead as it will be the main entry point to creating new edges int he object
+        // let edge = QueryOps.edgeExists( v1, v2 );
+        // if( edge ) return edge;
+
+        const edge = new Edge( v1, v2 );    // Create edge
+        StructOps.diskEdgeAppend( edge, v1 );    // Attach edge to circular lists
+        StructOps.diskEdgeAppend( edge, v2 );
+
+        return edge;
+    }
+
+    // BM_edge_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L939
+    static edgeKill( bm: BMesh, e: Edge ){
+        while( e.loop ){
+            this.faceKill( bm, e.loop.face ); // Will replace e.loop with next available one till its null
+        }
+
+        StructOps.diskEdgeRemove( e, e.v1 );
+        StructOps.diskEdgeRemove( e, e.v2 );
+
+        bm.cleanEdge( e );
+    }
+
     // bmesh_kernel_split_edge_make_vert: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1481
     static splitEdgeMakeVert( bm: BMesh, tv: Vertex, e: Edge ): Vertex{
         const v_old  = e.getOtherVert( tv ) as Vertex;
@@ -298,174 +608,40 @@ export default class CoreOps{
         return true;
     }
 
-    // bmesh_kernel_split_face_make_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
-    static splitFaceMakeEdge( bm: BMesh, f: Face, l_v1: Loop, l_v2: Loop ){
-        let first_loop_f1 : number;
+    // bmesh_kernel_edge_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2366
+    // static edgeSeparate( bm: BMesh, e: Edge, l_sep: Loop ){{
+    //     // BLI_assert(l_sep.e == e);
+    //     // BLI_assert(e.l);
 
-        let l_iter  : Loop;
-        let l_first : Loop;
-        let l_f1    : Loop = NULLY;
-        let l_f2    : Loop = NULLY;
-        
-        let f1len   : number;
-        let f2len   : number;
+    //     if( QueryOps.edgeIsBoundary( e ) ) return; // no cut required
 
-        // allocate new edge between v1 and v2
-        const v1   = l_v1.vert;
-        const v2   = l_v2.vert;
-        const e    = bm.addEdge( v1, v2 ) as Edge;
-        const f2   = bm.addFace();
-        l_f1 = bm.addLoop( v2, e, f ); 
-        l_f2 = bm.addLoop( v1, e, f2 );
+    //     if( l_sep == e.loop ) e.loop = l_sep.radial_next;
 
-        l_f1.prev       = l_v2.prev;
-        l_f2.prev       = l_v1.prev;
-        l_v2.prev.next  = l_f1;
-        l_v1.prev.next  = l_f2;
+    //     let e_new = bm.addEdge( e.v1, e.v2 ); // BM_edge_create(bm, e.v1, e.v2, e, BM_CREATE_NOP );
 
-        l_f1.next = l_v1;
-        l_f2.next = l_v2;
-        l_v1.prev = l_f1;
-        l_v2.prev = l_f2;
+    //     if( e_new ){
+    //         StructOps.radialLoopRemove( e, l_sep ); // bmesh_radial_loop_remove(e, l_sep);
+    //         StructOps.radialLoopAppend( e_new, l_sep ); // bmesh_radial_loop_append(e_new, l_sep);
+    //         l_sep.edge = e_new;
+    //     }
 
-        // find which of the faces the original first loop is in
-        l_first       = l_f1;
-        l_iter        = l_f1;
-        first_loop_f1 = 0;
+    //     // if (copy_select) { BM_elem_select_copy(bm, e_new, e); }
 
-        do{
-            if( l_iter == f.loop ) first_loop_f1 = 1;
-        } while( (l_iter = l_iter.next) != l_first );
+    //     // BLI_assert(bmesh_radial_length(e.l) == radlen - 1);
+    //     // BLI_assert(bmesh_radial_length(e_new.l) == 1);
 
-        if( first_loop_f1 ){
-            // Original first loop was in f1, find a suitable first loop for f2
-            // which is as similar as possible to f1. the order matters for tools
-            // such as dupli-faces.
-            if( f.loop.prev == l_f1 )       f2.loop = l_f2.prev;
-            else if( f.loop.next == l_f1 )  f2.loop = l_f2.next;
-            else                            f2.loop = l_f2;
-        }else{
-            // original first loop was in f2, further do same as above
-            f2.loop = f.loop;
+    //     // BM_CHECK_ELEMENT(e_new);
+    //     // BM_CHECK_ELEMENT(e);
+    // }
 
-            if( f.loop.prev == l_f2 )       f.loop = l_f1.prev;
-            else if( f.loop.next == l_f2 )  f.loop = l_f1.next;
-            else                            f.loop = l_f1;
-        }
+    // #endregion
 
-        // validate both loop 
-        // I don't know how many loops are supposed to be in each face at this point! FIXME
+    // #region VERTEX
 
-        // go through all of f2's loops and make sure they point to it properly
-        l_first = f2.loop;
-        l_iter  = f2.loop;
-        f2len   = 0;
-        do{
-            l_iter.face = f2;
-            f2len++;
-        } while( (l_iter = l_iter.next) != l_first );
-
-        /* link up the new loops into the new edges radial */
-        StructOps.radialLoopAppend( e, l_f1 ); // bmesh_radial_loop_append(e, l_f1);
-        StructOps.radialLoopAppend( e, l_f2 ); // bmesh_radial_loop_append(e, l_f2);
-
-        f2.len  = f2len;
-        f1len   = 0;
-        l_first = f.loop;
-        l_iter  = f.loop;
-        do{
-            f1len++;
-        } while( (l_iter = l_iter.next) != l_first );
-
-        f.len = f1len;
-
-        // CUSTOM: This op wasn't part of blender's fn, added here to make faces more
-        // usable as soon as its created in certain visualization debugging.
-        if( f2.loop ) QueryOps.loopCalcFaceNormal( f2.loop, f2.norm );
-
-        return f2;
-    }
-    
-    // bmesh_kernel_join_face_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
-    static joinFaceKillEdge( bm: BMesh, f1: Face, f2: Face, e: Edge ): Face | null{
-        let l_f1: Loop | null = null;
-        let l_f2: Loop | null = null;
-        let newlen = 0;
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        // can't join a face to itself
-        if( f1 == f2 ) return null;
-        
-        // validate that edge is 2-manifold edge
-        if( !QueryOps.edgeIsManifold( e ) ){
-            console.log( 'Error: Edge is not a 2-manifold edge' );
-            return null;
-        }
-
-        if( !(
-            (l_f1 = QueryOps.faceEdgeShareLoop(f1, e)) && 
-            (l_f2 = QueryOps.faceEdgeShareLoop(f2, e))
-        )) return null;
-        
-        // validate direction of f2's loop cycle is compatible
-        if( l_f1.vert == l_f2.vert ){
-            console.log( 'Error: Face windings are not compatible' );
-            return null;
-        }
-        
-        // validate that for each face, each vertex has another edge in its disk cycle that is not e, and not shared.
-        if( QueryOps.edgeInFace( l_f1.next.edge, f2 ) || QueryOps.edgeInFace( l_f1.prev.edge, f2 ) ||
-            QueryOps.edgeInFace( l_f2.next.edge, f1 ) || QueryOps.edgeInFace( l_f2.prev.edge, f1 ) ){
-
-            console.log( 'Error: Faces share to many vertices?' );
-            return null;
-        }
-        
-        // validate only one shared edge
-        if( QueryOps.faceShareEdgeCount( f1, f2 ) > 1 ){
-            console.log( 'Error: Faces share more then 1 edge' );
-            return null;
-        }
-        
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        /* join the two loop */
-        l_f1.prev.next = l_f2.next;
-        l_f2.next.prev = l_f1.prev;
-        
-        l_f1.next.prev = l_f2.prev;
-        l_f2.prev.next = l_f1.next;
-        
-        // If `l_f1` was base-loop, make `l_f1.next` the base.
-        if( f1.loop == l_f1 ) f1.loop = l_f1.next;
-        
-        // increase length of f1
-        f1.len += (f2.len - 2);
-        
-        // make sure each loop points to the proper face
-        newlen = f1.len;
-        for( let i=0, l_iter=f1.loop; i < newlen; i++, l_iter = l_iter.next ){
-            l_iter.face = f1;
-        }
-        
-        // remove edge from the disk cycle of its two vertices
-        StructOps.diskEdgeRemove(l_f1.edge, l_f1.edge.v1);
-        StructOps.diskEdgeRemove(l_f1.edge, l_f1.edge.v2);
-        
-        // deallocate edge and its two loops as well as f2
-        bm.cleanEdge( l_f1.edge );
-        bm.cleanLoop( l_f1 );
-        bm.cleanLoop( l_f2 );
-        bm.cleanFace( f2 );
-        
-        // validate the new loop cycle
-        if( !StructOps.loopValidate( f1 ) ){
-            console.log( 'Error: New Face loop didnt pass validation' );
-        }
-
-        // CUSTOM : Compute normal for modified face
-        if( f1.loop ) QueryOps.loopCalcFaceNormal( f1.loop, f1.norm );
-        
-        return f1;
+    // BM_vert_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L951
+    static vertKill( bm: BMesh, v: Vertex ){
+        while( v.edge ) this.edgeKill( bm, v.edge );
+        bm.cleanVert( v );
     }
 
     // bmesh_kernel_join_vert_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1801
@@ -527,6 +703,38 @@ export default class CoreOps{
         if( do_del ) bm.cleanVert( v_kill );
 
         return v_target;
+    }
+
+    // BM_vert_splice : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
+    // Merges two verts into one, warning This doesn't work for collapsing edges,
+    // where v and vtarget are connected by an edge
+    // NOTE: Not sure if this works correctly, In my test, it does not clean up
+    // the faces & edges affected by v_src. This Op may need to be executed
+    // with another to work properly.
+    static vertSplice( bm: BMesh, v_dst: Vertex, v_src: Vertex ): boolean{
+        let e: Edge | null;
+        
+        // verts already spliced 
+        if( v_src == v_dst )  return false;
+        
+        // CUSTOM: Assuming that vert splices should not be used on points that share faces
+        // So exit out the function if they do share.
+        // BLI_assert(BM_vert_pair_share_face_check(v_src, v_dst) == false);
+        if( QueryOps.vertPairShareFaceCheck( v_src, v_dst ) ) return false;
+        
+        
+        // move all the edges from 'v_src' disk to 'v_dst' 
+        // bmesh_disk_edge_remove will modify v_src.edge if the edge passed to it is the same
+        // Thats how this loop will continue & end
+        while( (e = v_src.edge) ) {
+            StructOps.edgeVertSwap( e, v_dst, v_src );  // bmesh_edge_vert_swap(e, v_dst, v_src);
+            // BLI_assert(e.v1 != e.v2);
+        }
+            
+        // 'v_src' is unused now, and can be killed
+        bm.cleanVert( v_src ); //BM_vert_kill(bm, v_src);
+
+        return true;
     }
 
     // bmesh_kernel_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2086
@@ -642,192 +850,35 @@ export default class CoreOps{
     //         BLI_SMALLSTACK_AS_TABLE(verts_new, &verts[1]);
     //     }
     // }
-    
-    
-    // bmesh_kernel_edge_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2366
-    // static edgeSeparate( bm: BMesh, e: Edge, l_sep: Loop ){{
-    //     // BLI_assert(l_sep.e == e);
-    //     // BLI_assert(e.l);
 
-    //     if( QueryOps.edgeIsBoundary( e ) ) return; // no cut required
 
-    //     if( l_sep == e.loop ) e.loop = l_sep.radial_next;
+    // BM_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2238
+    // static vertSeparateBM( bm: BMesh, v: Vertex, e_in: Edge, e_in_len: number, copy_select=false ): void{
+    //     LinkNode *edges_separate = null;
 
-    //     let e_new = bm.addEdge( e.v1, e.v2 ); // BM_edge_create(bm, e.v1, e.v2, e, BM_CREATE_NOP );
+    //     for ( let i=0; i < e_in_len; i++) {
+    //         let e: Edge = e_in[i];
+    //         if( bm_edge_supports_separate( e ) ){
+    //             LinkNode *edges_orig = null;
+                
+    //             do {
+    //                 let l_sep = e.loop;
+    //                 bmesh_kernel_edge_separate( bm, e, l_sep, copy_select);
+    //                 BLI_linklist_prepend_alloca( &edges_orig, l_sep.e);
+    //                // BLI_assert(e != l_sep.e);
+    //             } while( bm_edge_supports_separate( e ) );
 
-    //     if( e_new ){
-    //         StructOps.radialLoopRemove( e, l_sep ); // bmesh_radial_loop_remove(e, l_sep);
-    //         StructOps.radialLoopAppend( e_new, l_sep ); // bmesh_radial_loop_append(e_new, l_sep);
-    //         l_sep.edge = e_new;
+    //             BLI_linklist_prepend_alloca( &edges_orig, e );
+    //             BLI_linklist_prepend_alloca( &edges_separate, edges_orig );
+    //         }
     //     }
 
-    //     // if (copy_select) { BM_elem_select_copy(bm, e_new, e); }
+    //     bmesh_kernel_vert_separate( bm, v, r_vout, r_vout_len, copy_select );
 
-    //     // BLI_assert(bmesh_radial_length(e.l) == radlen - 1);
-    //     // BLI_assert(bmesh_radial_length(e_new.l) == 1);
-
-    //     // BM_CHECK_ELEMENT(e_new);
-    //     // BM_CHECK_ELEMENT(e);
+    //     if( edges_separate ){
+    //         bmesh_kernel_vert_separate__cleanup( bm, edges_separate );
+    //     }
     // }
-
-    
-    // BM_vert_splice : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050
-    // Merges two verts into one, warning This doesn't work for collapsing edges,
-    // where v and vtarget are connected by an edge
-    // NOTE: Not sure if this works correctly, In my test, it does not clean up
-    // the faces & edges affected by v_src. This Op may need to be executed
-    // with another to work properly.
-    static vertSplice( bm: BMesh, v_dst: Vertex, v_src: Vertex ): boolean{
-        let e: Edge | null;
-        
-        // verts already spliced 
-        if( v_src == v_dst )  return false;
-        
-        // CUSTOM: Assuming that vert splices should not be used on points that share faces
-        // So exit out the function if they do share.
-        // BLI_assert(BM_vert_pair_share_face_check(v_src, v_dst) == false);
-        if( QueryOps.vertPairShareFaceCheck( v_src, v_dst ) ) return false;
-        
-        
-        // move all the edges from 'v_src' disk to 'v_dst' 
-        // bmesh_disk_edge_remove will modify v_src.edge if the edge passed to it is the same
-        // Thats how this loop will continue & end
-        while( (e = v_src.edge) ) {
-            StructOps.edgeVertSwap( e, v_dst, v_src );  // bmesh_edge_vert_swap(e, v_dst, v_src);
-            // BLI_assert(e.v1 != e.v2);
-        }
-            
-        // 'v_src' is unused now, and can be killed
-        bm.cleanVert( v_src ); //BM_vert_kill(bm, v_src);
-
-        return true;
-    }
-
-
-    // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135
-    // BM_vert_separate: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2238
-    // BM_face_edges_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L806
-    // BM_face_verts_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L823
-
-    // #endregion
-
-    // #region LOOPS
-
-    // bm_loop_create : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L199
-    static loopCreate( v: Vertex, e: Edge, f: Face ){
-        const l = new Loop();
-        l.vert  = v;
-        l.edge  = e;
-        l.face  = f;
-        
-        return l;
-    }
-
-    // bmesh_kernel_loop_reverse : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L977
-    static loopReverse( f: Face ){
-        const initLoop: Loop = f.loop;
-
-        // track previous cycles radial state
-        let e_prev: Edge              = initLoop.prev.edge;
-        let l_prev_radial_next: Loop  = initLoop.prev.radial_next;
-        let l_prev_radial_prev: Loop  = initLoop.prev.radial_prev;
-        let is_prev_boundary: boolean = ( l_prev_radial_next == l_prev_radial_next.radial_next );
-
-        let l_iter: Loop = initLoop;
-        let e_iter: Edge;
-        let tmp   : Loop;
-
-        let l_iter_radial_next: Loop;
-        let l_iter_radial_prev: Loop;
-        let is_iter_boundary  : boolean;
-
-        do{
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            e_iter             = l_iter.edge;
-            l_iter_radial_next = l_iter.radial_next;
-            l_iter_radial_prev = l_iter.radial_prev;
-            is_iter_boundary   = ( l_iter_radial_next == l_iter_radial_next.radial_next )
-
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            // inline loop reversal
-            if( is_prev_boundary ){
-                // boundary
-                l_iter.radial_next = l_iter;
-                l_iter.radial_prev = l_iter;
-            }else{
-                // non-boundary, replace radial links
-                l_iter.radial_next              = l_prev_radial_next;
-                l_iter.radial_prev              = l_prev_radial_prev;
-                l_prev_radial_next.radial_prev  = l_iter;
-                l_prev_radial_prev.radial_next  = l_iter;
-            }
-
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            if( e_iter.loop == l_iter ) e_iter.loop = l_iter.next;
-            
-            l_iter.edge = e_prev;
-
-            // SWAP(BMLoop *, l_iter.next, l_iter.prev);
-            tmp         = l_iter.prev;
-            l_iter.prev = l_iter.next;
-            l_iter.next = tmp;
-
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            e_prev              = e_iter;
-            l_prev_radial_next  = l_iter_radial_next;
-            l_prev_radial_prev  = l_iter_radial_prev;
-            is_prev_boundary    = is_iter_boundary;
-
-            // step to next ( now swapped )
-        } while ( (l_iter = l_iter.prev) != initLoop );
-
-        // CUSTOM: This op wasn't part of blender's fn, added here to make faces more
-        // usable as soon as its created in certain visualization debugging.
-        if( f.loop ) QueryOps.loopCalcFaceNormal( f.loop, f.norm );
-    }
-
-    // #endregion
-
-    // #region EDGES
-
-    // Create new edge from two vertices
-    // BM_edge_create : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L128
-    static edgeCreate( v1: Vertex, v2: Vertex ): Edge | null {
-        if( v1 === v2 ){ console.log( 'edge create : vertices the same' ); return null; }
-
-        // Note: Taking this part out. Opting to using edgeExists in BMesh.addEdge
-        // instead as it will be the main entry point to creating new edges int he object
-        // let edge = QueryOps.edgeExists( v1, v2 );
-        // if( edge ) return edge;
-
-        const edge = new Edge( v1, v2 );    // Create edge
-        StructOps.diskEdgeAppend( edge, v1 );    // Attach edge to circular lists
-        StructOps.diskEdgeAppend( edge, v2 );
-
-        return edge;
-    }
-
-    // BM_edge_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L939
-    static edgeKill( bm: BMesh, e: Edge ){
-        while( e.loop ){
-            this.faceKill( bm, e.loop.face ); // Will replace e.loop with next available one till its null
-        }
-
-        StructOps.diskEdgeRemove( e, e.v1 );
-        StructOps.diskEdgeRemove( e, e.v2 );
-
-        bm.cleanEdge( e );
-    }
-
-    // #endregion
-
-    // #region VERTEX
-
-    // BM_vert_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L951
-    static vertKill( bm: BMesh, v: Vertex ){
-        while( v.edge ) this.edgeKill( bm, v.edge );
-        bm.cleanVert( v );
-    }
 
     // #endregion
 
