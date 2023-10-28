@@ -65,6 +65,7 @@ export default class CoreOps{
         // usable as soon as its created in certain visualization debugging.
         if( face.loop ) QueryOps.loopCalcFaceNormal( face.loop, face.norm );
 
+        bm.faces.push( face );
         return face;
     }
 
@@ -95,7 +96,7 @@ export default class CoreOps{
         bm.cleanFace( f );
     }
 
-    // bmesh_kernel_split_face_make_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
+    // bmesh_kernel_split_face_make_edge : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1342
     static splitFaceMakeEdge( bm: BMesh, f: Face, l_v1: Loop, l_v2: Loop ){
         let first_loop_f1 : number;
 
@@ -183,7 +184,7 @@ export default class CoreOps{
         return f2;
     }
     
-    // bmesh_kernel_join_face_kill_edge: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
+    // bmesh_kernel_join_face_kill_edge : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1884
     static joinFaceKillEdge( bm: BMesh, f1: Face, f2: Face, e: Edge ): Face | null{
         let l_f1: Loop | null = null;
         let l_f2: Loop | null = null;
@@ -265,7 +266,7 @@ export default class CoreOps{
         return f1;
     }
 
-    // BM_face_verts_kill: https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L823
+    // BM_face_verts_kill : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L823
     static faceVertsKill( bm: BMesh, f: Face ): void{
         const verts: Array< Vertex > = [];        
         let l_iter = f.loop;
@@ -293,7 +294,105 @@ export default class CoreOps{
         }
     }
 
-    // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135    
+    // BM_faces_join : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L1135
+    // Joins a collected group of faces into one. Only restriction on
+    // the input data is that the faces must be connected to each other.
+    static facesJoin( bm: BMesh, faces: Array<Face>, totface:number, do_del=true ): Face | null{
+        if( totface == 1 ) return faces[0];
+
+        let f           : Face;
+        let l_iter      : Loop;
+        let l_first     : Loop;
+        let v1          : Vertex | null = null; 
+        let v2          : Vertex | null = null;
+        let i           : number
+    
+        const edges     : Array< Edge >   = [];
+        const deledges  : Array< Edge >   = [];
+        const delverts  : Array< Vertex > = [];
+    
+        for( i=0; i < totface; i++ ){
+            f       = faces[i];
+            l_iter  = f.loop; 
+            l_first = f.loop;
+
+            do {
+                // CUSTOM: Not using flags, hope the custom fn to do a radial count
+                // let rlen = bm_loop_systag_count_radial( l_iter, _FLAG_JF);
+                const rlen = QueryOps.loopRadialCount( l_iter );
+
+                if( rlen > 2 ){
+                    console.log( "Input faces do not form a contiguous manifold region" );
+                    return null;
+
+                }else if( rlen == 1 ){
+                    
+                    edges.push( l_iter.edge );
+            
+                    if( !v1 ){
+                        v1 = l_iter.vert;
+                        v2 = l_iter.edge.getOtherVert( l_iter.vert );
+                    }
+
+                }else if( rlen == 2 ){
+                    const d1 = this.vertIsManifold( l_iter.edge.v1 );
+                    const d2 = this.vertIsManifold( l_iter.edge.v2 );
+            
+                    if( !d1 && !d2 ){
+                        // don't remove an edge it makes up the side of another face
+                        // else this will remove the face as well - campbell
+                        if( QueryOps.edgeFaceCountIsOver( l_iter.edge, 2 ) ){
+                            if( do_del ) deledges.push( l_iter.edge );
+                            // BM_ELEM_API_FLAG_ENABLE(l_iter.e, _FLAG_JF);
+                        }
+
+                        // CUSTOM: Edges, Loops & Faces was not being clearned out
+                        // So checking for any edges that are shared by more then 1
+                        // face as one that should be removed. That seems to do the trick
+                        if( do_del ){
+                            let ll   = l_iter;
+                            let fCnt = 0;
+                            do{
+                                if( faces.indexOf( ll.face ) !== -1 ) fCnt++; // Found Face
+                            }while( (ll=ll.radial_next) !== l_iter );
+
+                            if( fCnt >= 2 && deledges.indexOf( l_iter.edge ) === -1 ){
+                                deledges.push( l_iter.edge );
+                            }
+                        }
+                    }else{
+                        if( d1 && do_del ) delverts.push( l_iter.edge.v1 );
+                
+                        if( d2 && do_del ) delverts.push( l_iter.edge.v2 );
+                    }
+                }
+            } while( (l_iter = l_iter.next) != l_first );
+        }
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // create region face
+        const f_new = ( edges.length > 0 && v1 && v2 )
+            ? ConstructOps.faceCreateNgon( bm, v1, v2, edges, edges.length ) 
+            : null;
+        
+        if( !f_new ){
+            console.log( 'Invalid boundary region to join faces' );
+            return null;
+        }
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // delete old geometry
+        if( do_del ){
+            for( const edge of deledges ) this.edgeKill( bm, edge );
+            for( const vert of delverts ) this.vertKill( bm, vert );
+        }else{
+            // otherwise we get both old and new faces
+            for( i=0; i < totface; i++ ) this.faceKill( bm, faces[i] );
+        }
+        
+        return f_new;
+    }
+
 
     // #endregion
 
@@ -703,6 +802,29 @@ export default class CoreOps{
         if( do_del ) bm.cleanVert( v_kill );
 
         return v_target;
+    }
+
+    // bm_vert_is_manifold_flagged : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_core.cc#L1104
+    static vertIsManifold( v: Vertex ): boolean{
+        if( !v.edge ) return false;
+    
+        let e : Edge = v.edge;
+        let l : Loop | null;
+        do{
+            l = e.loop;
+            if( !l ) return false;
+            
+            if( QueryOps.edgeIsBoundary( l.edge ) ) return false;
+            
+            // NOTE: Hopefully this isn't needed
+            // do {
+            // if (!BM_ELEM_API_FLAG_TEST(l.f, api_flag)) {
+            //     return false;
+            // }
+            // } while ((l = l.radial_next) != e.l);
+        } while( (e = e.diskEdgeNext( v )) != v.edge );
+        
+        return true;
     }
 
     // BM_vert_splice : https://github.com/blender/blender/blob/48e60dcbffd86f3778ce75ab67f95461ffbe319c/source/blender/bmesh/intern/bmesh_core.cc#L2050

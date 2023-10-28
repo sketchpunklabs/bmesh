@@ -42,10 +42,9 @@ export default class BMesh{
     }
 
     addFace( ary?: Array<Vertex> ): Face{
-        const face = ( ary )
-            ? CoreOps.faceCreateVerts( this, ary )
-            : new Face();
+        if( ary ) return CoreOps.faceCreateVerts( this, ary );
 
+        const face = new Face();
         this.faces.push( face );
         return face;
     }

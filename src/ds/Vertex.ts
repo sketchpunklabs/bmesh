@@ -18,6 +18,7 @@ import type Edge from './Edge';
 
 export default class Vertex{
     // #region MAIN
+    id   : string           = window.crypto.randomUUID();
     pos  : Array< number >  = [0,0,0];
     edge : Edge | null      = null;     // Reference to first edge using this vert as an origin.
 

@@ -55,6 +55,25 @@ export default class QueryOps{
         const l = e.loop;
         return !!( l && ( l.radial_next == l ) );
     }
+    
+    // BM_edge_face_count_is_over : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.h#L253C9-L253C93
+    static edgeFaceCountIsOver( e: Edge, n: number ){ return !!( this.edgeFaceCountAtMost( e, n+1 ) === n+1 ); }
+    
+    // BM_edge_face_count_at_most : https://github.com/blender/blender/blob/2864c20302513dae0443af461d225b5a1987267a/source/blender/bmesh/intern/bmesh_query.cc#L651C1-L668C2
+    static edgeFaceCountAtMost( e: Edge, count_max: number ){
+      let count = 0;
+    
+      if( e.loop ){
+        let l_iter = e.loop;
+
+        do {
+          count++;
+          if( count == count_max ) break;
+        } while ( (l_iter = l_iter.radial_next) !=  e.loop );
+      }
+    
+      return count;
+    }
 
     // #endregion
 
@@ -181,6 +200,16 @@ export default class QueryOps{
       } while( (l_iter = l_iter.next) != f_a.loop );
     
       return count;
+    }
+
+    // CUSTOM: Get the size of the radial linked list of a loop
+    static loopRadialCount( l: Loop ): number{
+        let cnt   = 0;
+        let iter = l;
+        
+        do{ cnt++ }
+        while( (iter = iter.radial_next) !== l );
+        return cnt;
     }
 
     // #endregion
