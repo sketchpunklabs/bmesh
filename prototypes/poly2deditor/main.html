@@ -1,0 +1,169 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; margin:0px; padding:0px; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+// #region IMPORTS
+// import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+// import { Quat }         from '../_lib/oito_oop.js';
+// import { PLYLoader }    from 'three/addons/loaders/PLYLoader.js';
+import Poly2DEditor from './Poly2DEditor.js';
+// #endregion
+
+// #region MAIN
+let Ref = {};
+// let App;
+// let Debug;
+// let Editor;
+// let Picker;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // const canvas = document.getElementById( 'pgViewport' );
+    // App   = useDarkScene( useThreeWebGL2( { canvas, resize:false } ) );
+    // Debug = await useVisualDebug( App );
+    // App.sphericalLook( 180, 20, 6 );
+    // App.renderLoop();
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Ref.editor = new Poly2DEditor( 'poly2D' );
+
+    Ref.editor.fetchImage( '../polyeditor/depth2.png' ).then( ()=>{
+        Ref.editor.addPolygon( [ [10,10], [100,10], [150,50], [100,100], [10,100] ] );
+    });
+
+    document.getElementById( 'btnScale' ).addEventListener( 'click', ()=>{ Ref.editor.setContentScale(); });
+    document.getElementById( 'btnRotate' ).addEventListener( 'click', ()=>{ Ref.editor.setContentRotation(); });
+    document.getElementById( 'btnAdd' ).addEventListener( 'click', ()=>{ Ref.editor.addPolygon( [ [10,10], [100,10], [150,50], [100,100], [10,100] ] ); });
+    document.getElementById( 'btnRm' ).addEventListener( 'click', ()=>{ Ref.editor.removeSelected(); });
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Ref.resizer = new ResizeObserver( entries=>{
+        for( const e of entries ){
+            switch( e.target.id ){
+                //case 'lftPanel': break; // App.resize( e.contentRect.width, e.contentRect.height ); 
+                case 'ritPanel': Ref.editor.setViewportSize( e.contentRect.width, e.contentRect.height ); break;
+            }
+        }
+    });
+
+    Ref.resizer.observe( document.getElementById( 'lftPanel' ) );
+    Ref.resizer.observe( document.getElementById( 'ritPanel' ) );
+});
+</script>
+<style>
+    /* #region PAGE CONTAINER */
+    .container{ 
+        border:0px solid red; 
+        width: 100vw; height: 100vh; box-sizing:border-box;
+        display:grid;
+        grid-template-columns: 50% 50%;
+        grid-template-rows: auto;
+    }
+
+    .x{ border:1px solid #a0a0a0; box-sizing:border-box; overflow:auto; position:relative; }
+
+    .x::-webkit-scrollbar { height: 8px; width: 8px; }
+    .x::-webkit-scrollbar-track { border-radius: 0px; background-color: #DFE9EB; }
+    .x::-webkit-scrollbar-track:hover { background-color: #B8C0C2; }
+    .x::-webkit-scrollbar-track:active { background-color: #B8C0C2; }
+    .x::-webkit-scrollbar-thumb { border-radius: 0px; background-color: #397524; }
+    .x::-webkit-scrollbar-thumb:hover { background-color: #62A34B; }
+    .x::-webkit-scrollbar-thumb:active { background-color: #62A34B; }
+
+    .y{ border:0px solid black; box-sizing:border-box; height:fit-content; }
+    /* #endregion */
+
+    /* #region POLY EDITOR */
+    .PolyEditorCont{ border:0px solid red; box-sizing:border-box;
+        display:inline-block; position:absolute; overflow:auto; }
+
+    .PolyEditorCont::-webkit-scrollbar { height: 8px; width: 8px; }
+    .PolyEditorCont::-webkit-scrollbar-track { border-radius: 0px; background-color: #DFE9EB; }
+    .PolyEditorCont::-webkit-scrollbar-track:hover { background-color: #B8C0C2; }
+    .PolyEditorCont::-webkit-scrollbar-track:active { background-color: #B8C0C2; }
+    .PolyEditorCont::-webkit-scrollbar-thumb { border-radius: 0px; background-color: #505050; }
+    .PolyEditorCont::-webkit-scrollbar-thumb:hover { background-color: #808080; }
+    .PolyEditorCont::-webkit-scrollbar-thumb:active { background-color: #62A34B; }
+
+    .imgLayer{ user-select:none; z-index:100; position:absolute; opacity: 0.5; }
+    .svgLayer{ user-select:none; z-index:300; position:absolute; width:100%; height:100%; }
+    .gridLayer{
+        user-select:none; z-index:200; position:absolute;
+        top:0px; right:0px; left:0px; bottom:0px;
+        opacity: 0.05;
+        background-color: #1e1e1e27;
+        background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
+        background-position: -2px -2px, -2px -2px, -1px -1px, -1px -1px;
+    }
+
+    .gridLayer.light{
+        background-image:
+            linear-gradient(rgba(255,255,255,1) 2px,          transparent 2px),
+            linear-gradient(90deg, rgba(255,255,255,1) 2px,   transparent 2px),
+            linear-gradient(rgba(255, 255, 255, 0.8) 1px,     transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,.8) 1px,  transparent 1px);
+    }
+
+    .gridLayer.dark{
+        background-image:
+            linear-gradient(rgba(0,0,0,1) 2px,          transparent 2px),
+            linear-gradient(90deg, rgba(0,0,0,1) 2px,   transparent 2px),
+            linear-gradient(rgba(0,0,0,0.8) 1px,        transparent 1px),
+            linear-gradient(90deg, rgba(0,0,0,0.8) 1px, transparent 1px);
+    }
+
+    .uiLayer{ user-select:none; z-index:400; position:fixed; right: 20px; top: 10px; }
+
+    .pnt { 
+        fill:#880000; transition: fill 0.5s ease-in-out; stroke:#880000; stroke-width:8px; 
+        transition: all 0.2s ease-out, cx 0ms, cy 0ms;
+    }
+
+    .pnt:hover{ fill:cyan; stroke:cyan; stroke-width:14px; cursor:pointer; }
+    .pnt.sel{ fill:yellow; stroke:yellow; stroke-width:8px; }
+
+    .line{ stroke:cyan; stroke-width:2px;  transition: all 0.2s ease-out; }
+
+    .poly{ opacity:1.0; transition: all 0.3s ease-in-out;  }
+    .poly:hover{ opacity:0.4; }
+    .poly.active{ opacity:0.4; }
+    .poly.sel{ opacity:0.5; stroke:white; stroke-width:3px; }
+    
+    /* .line:hover{ stroke:cyan; stroke-width:6px; cursor:pointer; stroke-dasharray:0,0; }
+    .line.sel{ stroke:yellow; stroke-width:6px; stroke-dasharray:0,0; } */
+
+    /*
+    .pnt > circle:nth-child(1){ pointer-events: none; fill:transparent; stroke:lime; stroke-width:2px; }
+    .pnt > circle:nth-child(2){ pointer-events: none; fill:lime; }
+    */
+
+
+    /* #endregion */
+</style>
+
+<div class="container">
+    <div class="x" id="lftPanel">
+        <canvas id="pgViewport"></canvas>
+    </div>
+    <div class="x" id="ritPanel">
+
+        <div class="PolyEditorCont" id="poly2D">
+            <!-- <div class="imgLayer"><img src="./depth2.png"></div>
+
+            <div class="gridLayer dark"></div>
+            
+            <svg class="svgLayer" xmlns="http://www.w3.org/2000/svg"></svg>
+            -->
+            <div class="uiLayer">
+                <button id="btnScale">Scale</button>
+                <button id="btnRotate">Rotate</button>
+                <button id="btnAdd">Add</button>
+                <button id="btnRm">Remove</button>
+            </div> 
+        </div>
+
+    </div>
+</div>
+
+</body></html>

@@ -1,0 +1,359 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; margin:0px; padding:0px; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import { Quat }         from '../_lib/oito_oop.js';
+import { PLYLoader }    from 'three/addons/loaders/PLYLoader.js';
+//#endregion
+
+//#region MAIN
+let App   = useDarkScene( useThreeWebGL2() );
+let Ref   = {
+    radius: 0.2,
+};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    Debug = await useVisualDebug( App );
+    App.sphericalLook( 0, 20, 6 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const loader = new PLYLoader();
+	loader.load( './pointcloud.ply', geo=>{
+        // const mesh = new THREE.Points( geo, new THREE.PointsMaterial( {size:0.00001, color:0xc0c0c0} ) );
+        const mat = customMaterial( 0.00001 );
+        const mesh = new THREE.Points( geo, mat );
+        App.scene.add( mesh );
+        Ref.mat = mat;
+	} );
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const geo = new THREE.CylinderGeometry( 1, 1, 1, 16 );
+    geo.translate( 0, 0.5, 0 );
+    geo.rotateX( Math.PI * 0.5);
+
+    const mat = new THREE.MeshBasicMaterial( {color: 0x00ff00, transparent:true, opacity:0.2 } ); 
+    const cyl = new THREE.Mesh( geo, mat );
+
+    cyl.scale.set( Ref.radius, Ref.radius, 1.0 );
+    App.scene.add( cyl );
+
+    Ref.cylinder = cyl;
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.renderLoop();
+
+    fetchImage( './depth.png' ).then( img=>{ 
+        const ic = new ImageCanvas( img );
+        
+        // const geo   = new THREE.PlaneGeometry( 1, 1 );
+        // geo.rotateX( Math.PI * -0.5 );
+        // geo.translate ( 0.5, 0, 0.5 ); 
+
+        // const tex   = mkTexture( img, true, false );
+        // // const mat   = new THREE.MeshBasicMaterial( {map:tex, color: 0xffffff, side: THREE.DoubleSide, transparent: true } );
+        // const mat   = customMaterial( tex );
+        // const mesh  = new THREE.Mesh( geo, mat );
+        // mesh.scale.set( 1, 1, ratio );
+        // App.scene.add( mesh );
+
+        // document.body.appendChild( img );
+    } );
+
+    // App.createRenderLoop( onPreRender ).start();
+});
+
+function onPreRender( dt, et ){
+
+
+}
+// #endregion
+
+
+function fetchImage( url ){
+    return new Promise( async ( resolve, reject )=>{
+        const img        = new Image();
+        img.crossOrigin	 = 'anonymous';
+        img.onload       = ()=>{ resolve( img ); };
+        img.onerror      = ()=>{ reject( 'Error loading object url into image' ); };
+        img.src          = url;
+    });
+}
+
+const rgbToHex = (r, g, b) => {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+const CH_MIN = [-1, -1, -1, 0.0];
+const CH_MAX = [1, 1, 1, 3.07421875];
+
+class ImageCanvas{
+
+    constructor( img ){
+        this.canvas = document.createElement( 'canvas' );
+        this.ctx    = this.canvas.getContext( '2d' );
+        this.width  = 0;
+        this.height = 0;
+
+
+        this.canvas.style.backgroundColor = '#000000';
+
+        // console.log( img.height, img.width );
+
+        this.setSize( img.width, img.height );
+        this.drawImage( img, img.width, img.height );
+        this.setViewSize( 256, Math.floor( 256 * ( img.height / img.width )) );
+
+        this.imageData	= this.ctx.getImageData( 0, 0, img.width, img.height ); // Get Image Data object
+		this.aryRGBA	= this.imageData.data;	                                // Then its raw RGBA Array
+
+        document.getElementById( 'CanvasContainer' ).appendChild( this.canvas );
+        // document.body.appendChild( this.canvas );
+        // this.ctx		= this.canvas.getContext("2d");
+
+        this.canvas.addEventListener( 'click', e=>{
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            const u = e.offsetX / this.vWidth;
+            const v = e.offsetY / this.vHeight;
+
+            const x = Math.round( u * this.width ); // e.offsetX;
+            const y = Math.round( v * this.height ); //e.offsetY;
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            const c = this.getPX( x, y );
+            
+            // const a = c[3] / 255;
+            // const r = Math.floor( c[0] * a );
+            // const g = Math.floor( c[1] * a );
+            // const b = Math.floor( c[2] * a );
+            
+            // const h = rgbToHex( c[0], c[1], c[2] );
+            // const h = rgbToHex( r, g, b );
+
+            // console.log( x, y, h, c );
+            // document.body.style.backgroundColor = h;
+            // this.canvas.style.border = '1px solid white';
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // c = [ R, G, B, A ]
+            const xx = ( c[0] / 255 ) * (CH_MAX[0] - CH_MIN[0]) + CH_MIN[0];
+            const yy = ( c[1] / 255 ) * (CH_MAX[1] - CH_MIN[1]) + CH_MIN[1];
+            const zz = ( c[2] / 255 ) * (CH_MAX[2] - CH_MIN[2]) + CH_MIN[2];
+            const dd = ( c[3] / 255 ) * (CH_MAX[3] - CH_MIN[3]) + CH_MIN[3];
+
+            const mag = Math.sqrt( xx**2 + yy**2 + zz**2 );
+            let dir = [
+                ( xx / mag ) * dd* 5,
+                ( yy / mag ) * dd* 5, 
+                ( zz / mag ) * dd* 5,
+            ];
+
+            // Rays are off, Manual operations to fix?
+            dir = [ -dir[2], dir[1], dir[0] ];  // -zyx rot y+90
+            dir = [ -dir[0], dir[1], dir[2] ];  // X Mirror
+            
+            Debug.ln.reset();
+            Debug.ln.add( [0,0,0], dir, 0xffff00 );
+            console.log( 'xx', xx, yy, zz, dd );
+            
+            Ref.cylinder.quaternion.fromArray( new Quat().fromLook( dir ) );
+            Ref.cylinder.scale.z = dd * 5;
+
+            Ref.mat.rayDir = [ ( dir[0] / mag ), ( dir[1] / mag ),  ( dir[2] / mag ) ];
+            Ref.mat.dist   = Ref.cylinder.scale.z;
+        });
+    }
+
+    // #region INNER
+    setSize( w, h ){
+        // FIXES BLURRYNESS ON HIGHER DPI SCREENS
+        // let dpi                  = window.devicePixelRatio * 2.0; // Times two kinda helps
+        this.width               = w;
+        this.height              = h;
+        // this.canvas.width        = w * dpi;
+        // this.canvas.height       = h * dpi;
+        this.canvas.width        = w;
+        this.canvas.height       = h;
+        this.canvas.style.width  = w + 'px';
+        this.canvas.style.height = h + 'px';
+        // this.ctx.scale( dpi, dpi );
+    }
+
+    setViewSize( w, h ){
+        this.canvas.style.width  = w + 'px';
+        this.canvas.style.height = h + 'px';
+        this.vWidth  = w;
+        this.vHeight = h;
+    }
+
+	drawImage( img, w, h, x=0, y=0 ){
+		this.ctx.drawImage( img, x, y, w, h );
+	}
+    // #endregion
+
+    // #region Pixel Drawing
+	getPX( x, y ){
+		const idx = ( y * this.width + x ) * 4;
+		return [
+			this.aryRGBA[ idx ],
+			this.aryRGBA[ idx+1 ],
+			this.aryRGBA[ idx+2 ],
+			this.aryRGBA[ idx+3 ]
+		];
+	}
+	// #endregion //////////////////////////////////////////////////////////////////
+}
+
+
+function customMaterial( size=0.00001 ){
+    const mat = new THREE.RawShaderMaterial({
+        depthTest       : true,
+        // transparent 	: true, 
+        // side            : THREE.DoubleSide,
+        // lights          : true,
+
+        uniforms        : { 
+            // tex01 : { type :'sampler2D', value: tex },
+            size    : { type: 'float', value: size },
+            scale   : { type: 'float', value: 100 },
+
+            rayDir  : { type: 'vec3',  value:[0,0,0] },
+            dist    : { type: 'float', value:0 },
+            radius  : { type: 'float', value:Ref.radius },
+        },
+
+        extensions      : { derivatives : true },
+
+        vertexShader    : `#version 300 es
+        in	vec3    position;
+        // in  vec3    normal;
+        // in	vec2    uv;
+        
+        uniform     mat4    modelMatrix;
+        uniform     mat4    viewMatrix;
+        uniform     mat4    projectionMatrix;
+
+        uniform     float   size;
+        uniform     float   scale;
+        uniform     vec3    rayDir;
+        uniform     float   dist;
+        uniform     float   radius;
+
+        out vec3 pColor;
+        // out vec3    fragWPos;  // World Space Position
+        // out vec3    fragNorm;
+        // out vec2    fragUV;
+        
+        // #############################################################
+        /*
+        export default function nearPoint( ray: Ray, p: ConstVec3, distLimit=0.1 ) : number | null{
+            closest_point_to_line3D
+            let dx	= bx - ax,
+                dy	= by - ay,
+                dz	= bz - az,
+                t	= ( (px-ax)*dx + (py-ay)*dy + (pz-az)*dz ) / ( dx*dx + dy*dy + dz*dz ) ;
+            
+            const v = new Vec3( p ).sub( ray.posStart ).mul( ray.vecLength );
+            const t = ( v[0] + v[1] + v[2] ) / Vec3.lenSqr( ray.vecLength );
+
+            if( t < 0 || t > 1 ) return null;                       // Over / Under shoots the Ray Segment
+            const lenSqr = Vec3.distSqr( ray.posAt( t, v ), p );    // Distance from point to nearest point on ray.
+
+            return ( lenSqr <= (distLimit*distLimit) )? t : null;
+        }
+
+        posAt( t: number, out: TVec3 = [0,0,0] ): TVec3{
+            // RayVecLen * t + RayOrigin
+            // also works lerp( RayOrigin, RayEnd, t )
+            out[ 0 ] = this.vecLength[ 0 ] * t + this.posStart[ 0 ];
+            out[ 1 ] = this.vecLength[ 1 ] * t + this.posStart[ 1 ];
+            out[ 2 ] = this.vecLength[ 2 ] * t + this.posStart[ 2 ];
+            return out;
+        }
+        */
+
+        bool pointNearRay( vec3 dir, float dist, float lmt, vec3 pnt ){
+            vec3 rayStart = vec3( 0.0 );
+            vec3 vlen = ( dir * dist );
+            vec3 v    = ( pnt - rayStart ) * vlen;  // ( pnt - rayStart ) * ( rayEnd - rayStart )
+            float t   = ( v.x + v.y + v.z ) / ( vlen.x*vlen.x + vlen.y*vlen.y + vlen.z*vlen.z );
+
+            if( t < 0.0 || t > 1.0 ) return false;
+
+            vec3 hit = vlen * t + rayStart;
+
+            return ( length( pnt - hit ) <= lmt );
+        }
+
+        // #############################################################
+        void main(){
+            vec4 wPos   = modelMatrix * vec4( position, 1.0 );  // World Space
+            vec4 vPos   = viewMatrix * wPos;                    // View Space
+            
+            // pColor = vec3( 0.3 );
+            pColor = ( pointNearRay( rayDir, dist, radius, wPos.xyz ) )? vec3( 0.9 ) : vec3( 0.3 );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // fragUV              = uv;
+            // fragWPos            = wPos.xyz;
+            // fragNorm            = ( modelMatrix * vec4( normal, 0.0 ) ).xyz;
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            gl_Position     = projectionMatrix * vPos;
+            gl_PointSize    = size * ( scale / -vPos.z );
+        }`,
+
+        fragmentShader  : `#version 300 es
+        precision mediump float;
+        // in  vec3    fragWPos;
+        // in  vec3    fragNorm;
+        // in  vec2    fragUV;
+
+        in vec3 pColor;
+
+        uniform vec3 cameraPosition;
+
+        out vec4    outColor;
+
+        // #####################################################################
+        void main(){
+            outColor = vec4( pColor, 1.0 );
+        }`
+    });
+
+    // Object.defineProperty( mat, 'clock', { 
+    //     set: v=>{ mat.uniforms.clock.value = v } 
+    // });
+
+    Object.defineProperty( mat, 'size', { set: v=>{ mat.uniforms.size.value = v; } } );
+    Object.defineProperty( mat, 'dist', { set: v=>{ mat.uniforms.dist.value = v; } } );
+    Object.defineProperty( mat, 'rayDir', { set: v=>{ 
+        mat.uniforms.rayDir.value[0] = v[0];
+        mat.uniforms.rayDir.value[1] = v[1];
+        mat.uniforms.rayDir.value[2] = v[2];
+    } } );
+
+    return mat;
+}
+
+
+</script>
+
+
+<style>
+    #CanvasContainer{
+        display:inline-block;
+        position:fixed;
+        right:10px;
+        top:10px;
+        border:1px solid red;
+        overflow:auto;
+        width:256;
+        height:256;
+    }
+</style>
+<div id="CanvasContainer"></div>
+</body></html>

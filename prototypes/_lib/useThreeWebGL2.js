@@ -58,10 +58,12 @@ export async function useVisualDebug( tjs ){
 // #region MAIN
 export default function useThreeWebGL2( props={} ){
     props = Object.assign( {
-        colorMode : false,
-        shadows   : false,
+        colorMode       : false,
+        shadows         : false,
         preserverBuffer : false,
         power           : '',
+        canvas          : null,
+        resize          : true,
     }, props );
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -74,9 +76,11 @@ export default function useThreeWebGL2( props={} ){
         preserveDrawingBuffer   : props.preserverBuffer,
         powerPreference         : ( props.power === '')      ? 'default' : 
                                   ( props.power === 'high' ) ? 'high-performance' : 'low-power',
+
+        premultipliedAlpha: false,
     };
 
-    const canvas    = document.createElement( 'canvas' );
+    const canvas    = props.canvas || document.createElement( 'canvas' );
     options.canvas  = canvas;
     options.context = canvas.getContext( 'webgl2',  { preserveDrawingBuffer: props.preserverBuffer } );
 
@@ -104,7 +108,7 @@ export default function useThreeWebGL2( props={} ){
         renderer.shadowMap.type    = THREE.PCFSoftShadowMap; // default THREE.PCFShadowMap
     }
 
-    document.body.appendChild( renderer.domElement );
+    if( !props.canvas ) document.body.appendChild( renderer.domElement );
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     // CORE
@@ -345,9 +349,10 @@ export default function useThreeWebGL2( props={} ){
     // }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-    window.addEventListener( 'resize', ()=>resize() );
-    resize();
+    if( props.resize ){
+        window.addEventListener( 'resize', ()=>resize() );
+        resize();
+    }
 
     return self = {
         renderer,

@@ -1,0 +1,201 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; margin:0px; padding:0px; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+
+import { PLYLoader }    from 'three/addons/loaders/PLYLoader.js';
+//#endregion
+
+//#region MAIN
+let App   = useDarkScene( useThreeWebGL2() );
+let Ref   = {};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    Debug = await useVisualDebug( App );
+    App.sphericalLook( 0, 20, 6 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const loader = new PLYLoader();
+	loader.load( './pointcloud.ply', geo=>{
+        const mesh = new THREE.Points( geo, new THREE.PointsMaterial( {size:0.00001, color:0xc0c0c0} ) );
+        App.scene.add( mesh );
+	} );
+
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.renderLoop();
+
+    fetchImage( './depth.png' ).then( img=>{ 
+        const ic = new ImageCanvas( img );
+        
+        // const geo   = new THREE.PlaneGeometry( 1, 1 );
+        // geo.rotateX( Math.PI * -0.5 );
+        // geo.translate ( 0.5, 0, 0.5 ); 
+
+        // const tex   = mkTexture( img, true, false );
+        // // const mat   = new THREE.MeshBasicMaterial( {map:tex, color: 0xffffff, side: THREE.DoubleSide, transparent: true } );
+        // const mat   = customMaterial( tex );
+        // const mesh  = new THREE.Mesh( geo, mat );
+        // mesh.scale.set( 1, 1, ratio );
+        // App.scene.add( mesh );
+
+        // document.body.appendChild( img );
+    } );
+
+    // App.createRenderLoop( onPreRender ).start();
+});
+
+function onPreRender( dt, et ){
+
+
+}
+// #endregion
+
+
+function fetchImage( url ){
+    return new Promise( async ( resolve, reject )=>{
+        const img        = new Image();
+        img.crossOrigin	 = 'anonymous';
+        img.onload       = ()=>{ resolve( img ); };
+        img.onerror      = ()=>{ reject( 'Error loading object url into image' ); };
+        img.src          = url;
+    });
+}
+
+const rgbToHex = (r, g, b) => {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+const CH_MIN = [-1, -1, -1, 0.0];
+const CH_MAX = [1, 1, 1, 3.07421875];
+
+class ImageCanvas{
+
+    constructor( img ){
+        this.canvas = document.createElement( 'canvas' );
+        this.ctx    = this.canvas.getContext( '2d' );
+        this.width  = 0;
+        this.height = 0;
+
+
+        this.canvas.style.backgroundColor = '#000000';
+
+        // console.log( img.height, img.width );
+
+        this.setSize( img.width, img.height );
+        this.drawImage( img, img.width, img.height );
+        this.setViewSize( 256, Math.floor( 256 * ( img.height / img.width )) );
+
+        this.imageData	= this.ctx.getImageData( 0, 0, img.width, img.height ); // Get Image Data object
+		this.aryRGBA	= this.imageData.data;	                                // Then its raw RGBA Array
+
+        document.getElementById( 'CanvasContainer' ).appendChild( this.canvas );
+        // document.body.appendChild( this.canvas );
+        // this.ctx		= this.canvas.getContext("2d");
+
+        this.canvas.addEventListener( 'click', e=>{
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            const u = e.offsetX / this.vWidth;
+            const v = e.offsetY / this.vHeight;
+
+            const x = Math.round( u * this.width ); // e.offsetX;
+            const y = Math.round( v * this.height ); //e.offsetY;
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            const c = this.getPX( x, y );
+            
+            // const a = c[3] / 255;
+            // const r = Math.floor( c[0] * a );
+            // const g = Math.floor( c[1] * a );
+            // const b = Math.floor( c[2] * a );
+            
+            // const h = rgbToHex( c[0], c[1], c[2] );
+            // const h = rgbToHex( r, g, b );
+
+            // console.log( x, y, h, c );
+            // document.body.style.backgroundColor = h;
+            // this.canvas.style.border = '1px solid white';
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // c = [ R, G, B, A ]
+            const xx = ( c[0] / 255 ) * (CH_MAX[0] - CH_MIN[0]) + CH_MIN[0];
+            const yy = ( c[1] / 255 ) * (CH_MAX[1] - CH_MIN[1]) + CH_MIN[1];
+            const zz = ( c[2] / 255 ) * (CH_MAX[2] - CH_MIN[2]) + CH_MIN[2];
+            const dd = ( c[3] / 255 ) * (CH_MAX[3] - CH_MIN[3]) + CH_MIN[3];
+
+            const mag = Math.sqrt( xx**2 + yy**2 + zz**2 );
+            let dir = [
+                ( xx / mag ) * dd,
+                ( yy / mag ) * dd, 
+                ( zz / mag ) * dd,
+            ];
+
+            // Rays are off, Manual operations to fix?
+            dir = [ -dir[2], dir[1], dir[0] ];  // -zyx rot y+90
+            dir = [ -dir[0], dir[1], dir[2] ];  // X Mirror
+            
+            Debug.ln.add( [0,0,0], dir, 0xffff00 );
+            console.log( 'xx', xx, yy, zz, dd );
+        });
+    }
+
+    // #region INNER
+    setSize( w, h ){
+        // FIXES BLURRYNESS ON HIGHER DPI SCREENS
+        // let dpi                  = window.devicePixelRatio * 2.0; // Times two kinda helps
+        this.width               = w;
+        this.height              = h;
+        // this.canvas.width        = w * dpi;
+        // this.canvas.height       = h * dpi;
+        this.canvas.width        = w;
+        this.canvas.height       = h;
+        this.canvas.style.width  = w + 'px';
+        this.canvas.style.height = h + 'px';
+        // this.ctx.scale( dpi, dpi );
+    }
+
+    setViewSize( w, h ){
+        this.canvas.style.width  = w + 'px';
+        this.canvas.style.height = h + 'px';
+        this.vWidth  = w;
+        this.vHeight = h;
+    }
+
+	drawImage( img, w, h, x=0, y=0 ){
+		this.ctx.drawImage( img, x, y, w, h );
+	}
+    // #endregion
+
+    // #region Pixel Drawing
+	getPX( x, y ){
+		const idx = ( y * this.width + x ) * 4;
+		return [
+			this.aryRGBA[ idx ],
+			this.aryRGBA[ idx+1 ],
+			this.aryRGBA[ idx+2 ],
+			this.aryRGBA[ idx+3 ]
+		];
+	}
+	// #endregion //////////////////////////////////////////////////////////////////
+}
+</script>
+
+
+<style>
+    #CanvasContainer{
+        display:inline-block;
+        position:fixed;
+        right:10px;
+        top:10px;
+        border:1px solid red;
+        overflow:auto;
+        width:256;
+        height:256;
+    }
+</style>
+<div id="CanvasContainer"></div>
+</body></html>

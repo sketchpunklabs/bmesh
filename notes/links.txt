@@ -8,3 +8,9 @@ https://github.com/eliemichel/BMeshUnity/blob/master/Library/BMesh.cs
 
 https://fossies.org/linux/blender/source/blender/python/bmesh/bmesh_py_api.c
 https://cpp.hotexamples.com/examples/-/-/BM_vert_create/cpp-bm_vert_create-function-examples.html
+
+
+
+Extrude Vertex
+https://docs.blender.org/api/current/bmesh.ops.html#bmesh.ops.extrude_vert_indiv
+https://github.com/blender/blender/blob/01a2bd03695f217616acc2581fe8746f5cd226d7/source/blender/bmesh/operators/bmo_extrude.cc#L234

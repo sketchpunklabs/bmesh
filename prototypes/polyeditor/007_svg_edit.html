@@ -1,0 +1,444 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; margin:0px; padding:0px; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+
+//#endregion
+
+//#region MAIN
+const Ref = {};
+
+window.addEventListener( 'load', async _=>{
+    Ref.editor = new Editor( 'editor' );
+
+    document.getElementById( 'test' ).addEventListener( 'click', ()=>{
+        Ref.editor.scale(); 
+    });
+
+    document.getElementById( 'test2' ).addEventListener( 'click', ()=>{
+        Ref.editor.rotate(); 
+    });
+});
+
+// #endregion
+
+
+function newPoint( root, idx ){
+    const a = SvgDraw.circle( 50, 50, 1 );
+    a.classList.add( 'pnt' );
+    a.dataset.idx = idx;
+    root.appendChild( a );
+    return a;
+}
+
+function newEdge( root, idx ){
+    const a = SvgDraw.line();
+    a.classList.add( 'line' );
+    a.dataset.idx = idx;
+    root.appendChild( a );
+    return a;
+}
+
+function applyTransform( t, out=[0,0] ){
+    // GLSL - vecQuatRotation(model.rotation, a_position.xyz * model.scale) + model.position;
+
+    // Scale
+    let x = out[0] * t.scl;
+    let y = out[1] * t.scl;
+
+    // Rotate
+    const cos = Math.cos( t.rot * Math.PI / 180 );
+    const sin = Math.sin( t.rot * Math.PI / 180 );
+    out[0] = x * cos - y * sin;
+    out[1] = x * sin + y * cos;
+
+    // Translate
+    out[0] += t.pos[0];
+    out[1] += t.pos[1];
+    return out;
+}
+
+function invTransform( a, b ){
+    b.rot = -a.rot;
+    b.scl = 1 / a.scl;
+    
+    // Invert Position : rotInv * ( invScl * -Pos )
+    const x   = -a.pos[0] * b.scl;
+    const y   = -a.pos[1] * b.scl;
+
+    const cos = Math.cos( b.rot * Math.PI / 180 );
+    const sin = Math.sin( b.rot * Math.PI / 180 );
+
+    b.pos[0]  = x * cos - y * sin;
+    b.pos[1]  = x * sin + y * cos;
+}
+
+class Editor{
+    // #region MAIN
+    constructor( rootID ){
+        const root = document.getElementById( rootID );
+
+        this.transform = {
+            scl: 1,
+            rot: 0, // Deg
+            pos: [0,0],
+        }
+
+        this.invtransform = {
+            scl: 1,
+            rot: 0, // Deg
+            pos: [0,0],
+        }
+
+        this.layers = {
+            image   : root.getElementsByClassName( 'imgLayer' )[0],
+            grid    : root.getElementsByClassName( 'gridLayer' )[0],
+            svg     : root.getElementsByClassName( 'svgLayer' )[0],
+        };
+
+        this.layers.svg.style.transformOrigin        = 'top left';
+        this.layers.image.children[0].style.transformOrigin = 'top left';
+
+        const size = this.getImageSize();
+        this.setSize( size[0], size[1] );
+
+
+        // const a = SvgDraw.circle( 50, 50, 1 );
+        // a.classList.add( 'pnt' );
+        // this.layers.svg.appendChild( a );
+
+//        this.polygon = [ [10,10], [100,10], [150,50], [100,100], [10,100] ];
+        this.polygon = [[466,444],[468,429],[477,419],[487,454],[473,458]];
+
+        this.edges  = [
+            newEdge( this.layers.svg, 0 ),
+            newEdge( this.layers.svg, 1 ),
+            newEdge( this.layers.svg, 2 ),
+            newEdge( this.layers.svg, 3 ),
+            newEdge( this.layers.svg, 4 ),
+        ];
+        
+        this.points  = [
+            newPoint( this.layers.svg, 0 ),
+            newPoint( this.layers.svg, 1 ),
+            newPoint( this.layers.svg, 2 ),
+            newPoint( this.layers.svg, 3 ),
+            newPoint( this.layers.svg, 4 ),
+        ];
+        
+        this.pointerId  = -1;
+        this.dragItem   = null;
+        this.layers.svg.addEventListener( 'pointerdown', this.onDragDown );
+
+        this.renderPolygon();
+    }
+    // #endregion
+
+    // #region Getters / Setters
+    getImageSize(){
+        const w = this.layers.image.children[0].width;
+        const h = this.layers.image.children[0].height;
+        return [w, h];
+    }
+
+    setSize( w, h ){
+        this.layers.grid.style.width  = w + 'px';
+        this.layers.grid.style.height = h + 'px';
+        this.layers.svg.style.width   = w + 'px';
+        this.layers.svg.style.height  = h + 'px';
+    }
+    // #endregion
+
+    // #region VIEW PORT
+    scale(){
+        const t = this.transform;
+        t.scl = ( t.scl == 1 )? 2 : 1;
+        this.updateLayerTransforms();
+    }
+
+    rotate(){
+        const t = this.transform;
+        const s = this.getImageSize();
+
+        t.rot   = ( t.rot + 90 ) % 360;
+
+        console.log( t.rot );
+
+        switch( t.rot ){
+            case 0:     
+                // t.setPos( 0, 0 );
+                t.pos[0] = 0;
+                t.pos[1] = 0;
+                break;
+            case 90:    
+                // t.setPos( h, 0 );
+                t.pos[0] = s[1];
+                t.pos[1] = 0;
+                break;
+            case 180:   
+                // t.setPos( w, h );
+                t.pos[0] = s[0];
+                t.pos[1] = s[1];
+                break;
+            case 270:
+                // t.setPos( 0, w );
+                t.pos[0] = 0;
+                t.pos[1] = s[0];
+                break;
+        }
+
+        this.updateLayerTransforms();
+    }
+
+    updateLayerTransforms(){
+        const t = this.transform;
+
+        invTransform( this.transform, this.invtransform );
+
+        this.layers.grid.style.transform = `scale(${t.scl})`;
+        this.layers.svg.style.transform =  `scale(${t.scl}) translate( ${t.pos[0]}px, ${t.pos[1]}px ) rotate(${t.rot}deg)`;
+        this.layers.image.children[0].style.transform =  `scale(${t.scl}) translate( ${t.pos[0]}px, ${t.pos[1]}px ) rotate(${t.rot}deg)`;
+    
+        const box = this.layers.image.children[0].getBoundingClientRect();
+        this.setSize( box.width, box.height );
+    }
+    // #endregion
+
+    // #region DRAGGING
+    onDragUp = e=>{
+        this.layers.svg.removeEventListener( 'pointermove',  this.onDragMove );
+        this.layers.svg.releasePointerCapture( this.pointerId );
+    };
+
+    onDragDown = e=>{
+        // console.log( e.target, e.layerX, e.layerY, e.target.nodeName );
+        if( e.target.nodeName == 'circle' ){
+            this.layers.svg.addEventListener( 'pointermove', this.onDragMove );
+            this.layers.svg.addEventListener( 'pointerup', this.onDragUp, {once:true} );
+            this.pointerId = e.pointerId;
+            this.dragItem  = e.target;
+        }
+    };
+
+    onDragMove = e=>{
+        this.layers.svg.setPointerCapture( this.pointerId );
+        e.preventDefault();
+        e.stopPropagation();
+
+        // this.dragItem.setAttribute( 'cx',  );
+        // this.dragItem.setAttribute( 'cy', e.layerY );
+
+        const p = this.polygon[ this.dragItem.dataset.idx ];
+        p[ 0 ] = e.layerX;
+        p[ 1 ] = e.layerY;
+
+        // Extra HACK for how Translate is being used by the layers
+        // If Scaling, subtract translation to offset the origin being moved.
+        // Then inverse transform should work
+        if( this.transform.scl != 1 ){
+            p[0] -= this.transform.pos[0];
+            p[1] -= this.transform.pos[1];
+        }
+
+        applyTransform( this.invtransform, p ); // Apply Inverse Transform 
+
+        console.log( JSON.stringify( this.polygon ) );
+        this.renderPolygon();
+    };
+    // #endregion
+
+    // #region POLYGON
+    renderPolygon(){
+        for( let i=0; i < this.polygon.length; i++ ){
+            const ii = ( i +  1 ) % this.polygon.length;
+            const v0 = this.polygon[ i ];
+            const v1 = this.polygon[ ii ];
+
+            const p = this.points[ i ];
+            const e = this.edges[ i ];
+
+            p.setAttribute( 'cx', v0[0] );
+            p.setAttribute( 'cy', v0[1] );
+
+            e.setAttribute( 'x1', v0[0] );
+            e.setAttribute( 'y1', v0[1] );
+            e.setAttribute( 'x2', v1[0] );
+            e.setAttribute( 'y2', v1[1] );
+        }
+    }
+    // #endregion
+
+}
+
+
+// #region SVG
+
+const NS = "http://www.w3.org/2000/svg";
+function Elm( name ){ return document.createElementNS( NS, name ); }
+function Atr( elm, name, val ){ elm.setAttributeNS( null, name, val ); }
+
+class SvgDraw{
+    static svg(){ return Elm( 'svg' ); }
+
+    static group( id=null ){
+        const e = Elm( 'g' );
+        if( id != null ) Atr( e, 'id', id );
+        return e;
+    }
+
+    static attrib( elm, name, val ){ elm.setAttributeNS( null, name, val ); }
+
+    static circle( x, y, radius, fillColor=null, strokeColor=null, strokeWidth=0 ){
+        let e = Elm( 'circle' );
+        Atr( e, 'cx', x );
+        Atr( e, 'cy', y );
+        Atr( e, 'r', radius );
+        if( fillColor )     Atr( e, 'fill',         fillColor );
+        if( strokeColor )   Atr( e, 'stroke',       strokeColor );
+        if( strokeWidth )   Atr( e, 'stroke-width', strokeWidth );
+        return e;
+    }
+
+    static ellipse( x, y, xRadius, yRadius, fillColor=null, strokeColor=null, strokeWidth=0 ){
+        let e = Elm( 'ellipse' );
+        Atr( e, 'cx', x );
+        Atr( e, 'cy', y );
+        Atr( e, 'rx', xRadius );
+        Atr( e, 'ry', yRadius );
+        if( fillColor )     Atr( e, 'fill',         fillColor );
+        if( strokeColor )   Atr( e, 'stroke',       strokeColor );
+        if( strokeWidth )   Atr( e, 'stroke-width', strokeWidth );
+        return e;
+    }
+
+    static rect( x, y, w, h, fillColor=null, strokeColor=null, strokeWidth=0 ){
+        let e = Elm( 'rect' );
+        Atr( e, 'x', x );
+        Atr( e, 'y', y );
+        Atr( e, 'width', w );
+        Atr( e, 'height', h );
+        if( fillColor )     Atr( e, 'fill',         fillColor );
+        if( strokeColor )   Atr( e, 'stroke',       strokeColor );
+        if( strokeWidth )   Atr( e, 'stroke-width', strokeWidth );
+        return e;
+    }
+
+    static roundRect( x, y, w, h, r, fillColor=null, strokeColor=null, strokeWidth=0 ){
+        let e = Elm( 'rect' );
+        Atr( e, 'x', x );
+        Atr( e, 'y', y );
+        Atr( e, 'width', w );
+        Atr( e, 'height', h );
+        Atr( e, 'rx', r );
+        Atr( e, 'ry', r );
+        if( fillColor )     Atr( e, 'fill',         fillColor );
+        if( strokeColor )   Atr( e, 'stroke',       strokeColor );
+        if( strokeWidth )   Atr( e, 'stroke-width', strokeWidth );
+        return e;
+    }
+
+    static line( x1=null, y1=null, x2=null, y2=null, strokeColor=null, strokeWidth=0 ){
+        let e = Elm( 'line' );
+        if( x1 ) Atr( e, 'x1', x1 );
+        if( y1 ) Atr( e, 'y1', y1 );
+        if( x2 ) Atr( e, 'x2', x2 );
+        if( y2 ) Atr( e, 'y2', y2 );
+        if( strokeColor )   Atr( e, 'stroke',       strokeColor );
+        if( strokeWidth )   Atr( e, 'stroke-width', strokeWidth );
+        return e;
+    }
+
+    /** points='0,0 100,100, 100,50' */
+    static polygon( svgPnts=null, fillColor=null, strokeColor=null, strokeWidth=0 ){
+        let e = Elm( 'polygon' );
+        if( svgPnts )       Atr( e, 'points',       svgPnts );
+        if( fillColor )     Atr( e, 'fill',         fillColor );
+        if( strokeColor )   Atr( e, 'stroke',       strokeColor );
+        if( strokeWidth )   Atr( e, 'stroke-width', strokeWidth );
+        return e;
+    }
+
+    /** points='0,0 100,100, 100,50' */
+    static polygline( svgPnts, strokeColor=null, strokeWidth=0 ){
+        let e = Elm( 'polyline' );
+        Atr( e, 'points', svgPnts );
+        if( fillColor )     Atr( e, 'fill',         fillColor );
+        return e;
+    }
+
+    static translate( elm, x, y ){ elm.setAttributeNS( null, "transform", 'translate(' + x + "," + y + ")" ); }
+}
+
+// #endregion
+
+</script>
+
+<style>
+    .container{
+        display:inline-block;
+        position:relative;
+        left:10px;
+        top:10px;
+        border:1px solid red;
+        overflow:auto;
+        width:500px;
+        height:500px;
+    }
+
+    .imgLayer{ user-select:none; z-index:100; position:absolute; opacity: 0.5; }
+    .svgLayer { user-select:none; z-index:300; position:absolute; width:100%; height:100%; }
+    .gridLayer{
+        user-select:none; z-index:200; position:absolute;
+        top:0px; right:0px; left:0px; bottom:0px;
+        opacity: 0.05;
+        background-color: #1e1e1e27;
+        background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
+        background-position: -2px -2px, -2px -2px, -1px -1px, -1px -1px;
+    }
+
+    .gridLayer.light{
+        background-image:
+            linear-gradient(rgba(255,255,255,1) 2px,          transparent 2px),
+            linear-gradient(90deg, rgba(255,255,255,1) 2px,   transparent 2px),
+            linear-gradient(rgba(255, 255, 255, 0.8) 1px,     transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,.8) 1px,  transparent 1px);
+    }
+
+    .gridLayer.dark{
+        background-image:
+            linear-gradient(rgba(0,0,0,1) 2px,          transparent 2px),
+            linear-gradient(90deg, rgba(0,0,0,1) 2px,   transparent 2px),
+            linear-gradient(rgba(0,0,0,0.8) 1px,     transparent 1px),
+            linear-gradient(90deg, rgba(0,0,0,0.8) 1px,  transparent 1px);
+    }
+
+
+    .pnt { 
+        fill:#880000; transition: fill 0.5s ease-in-out; stroke:#880000; stroke-width:8px; 
+        transition: all 0.2s ease-out, cx 0ms, cy 0ms;
+    }
+
+    .pnt:hover{ fill:cyan; stroke:cyan; stroke-width:14px; cursor:pointer; }
+    .pnt.sel{ fill:yellow; stroke:yellow; stroke-width:14px; }
+
+    .line{ stroke:cyan; stroke-width:2px;  transition: all 0.2s ease-out; }
+    /* .line:hover{ stroke:cyan; stroke-width:6px; cursor:pointer; stroke-dasharray:0,0; }
+    .line.sel{ stroke:yellow; stroke-width:6px; stroke-dasharray:0,0; } */
+
+    /*
+    .pnt > circle:nth-child(1){ pointer-events: none; fill:transparent; stroke:lime; stroke-width:2px; }
+    .pnt > circle:nth-child(2){ pointer-events: none; fill:lime; }
+    */
+</style>
+
+<button id="test">Scale</button>
+<button id="test2">Rotate</button>
+
+<br>
+<div class="container" id="editor">
+    <div class="imgLayer"><img src="./depth2.png"></div>
+    <div class="gridLayer dark"></div>
+    <svg class="svgLayer" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+
+</body></html>
