@@ -58,7 +58,7 @@ window.addEventListener( 'load', async _=>{
         border:0px solid red; 
         width: 100vw; height: 100vh; box-sizing:border-box;
         display:grid;
-        grid-template-columns: 50% 50%;
+        grid-template-columns: 300px auto;
         grid-template-rows: auto;
     }
 
@@ -145,9 +145,29 @@ window.addEventListener( 'load', async _=>{
     /* #endregion */
 </style>
 
+/*
+SUGGESTIONS
+- Center view to selected polygon when scaled
+*/
+
 <div class="container">
     <div class="x" id="lftPanel">
-        <canvas id="pgViewport"></canvas>
+        <!-- <canvas id="pgViewport"></canvas> -->
+        <div style="margin:10px 0px 0px 10px; font-weight:bold;">INSTRUCTIONS</div>
+        <ul>
+            <li>Double click polygon to enter edit mode</li>
+            <li>Double click polygon or background to exit edit mode</li>
+            <li>Click & hold to drag around elements</li>
+            <li>when adding <b>NEW POINTS</b>, click button then click on new point that appears on polygon edges.</li>
+            <li>Hold down for a second on any element to mark it as selected</li>
+            <li>Use <b>shift</b> for multi-selection</li>
+            <li>When there is multi-selections, <b>double click</b> to select an item while deselecting everything else</li>
+        </ul>
+
+        <div style="margin:10px 0px 0px 10px; font-weight:bold;">NOTES</div>
+        <ul>
+            <li>Line Mode does not have multi-selection</li>
+        </ul>
     </div>
     <div class="x" id="ritPanel">
 
@@ -159,14 +179,14 @@ window.addEventListener( 'load', async _=>{
             <svg class="svgLayer" xmlns="http://www.w3.org/2000/svg"></svg>
             -->
             <div class="uiLayer">
-                <button id="btnScale">Scale</button>
-                <button id="btnRotate">Rotate</button>
-                <button id="btnAdd">Add</button>
-                <button id="btnRm">Remove</button>
-                <button id="btnAddPnt">Add Point</button>
+                <button id="btnScale">ScaleCanvas</button>
+                <button id="btnRotate">RotateCanvas</button>
+                <button id="btnAdd">AddPoly</button>
+                <button id="btnRm">RemoveSel</button>
+                <button id="btnAddPnt">AddPnt</button>
 
-                <button id="btnEditPnt">Edit Pnt</button>
-                <button id="btnEditLn">Edit Ln</button>
+                <button id="btnEditPnt">PntMode</button>
+                <button id="btnEditLn">LnMode</button>
             </div> 
         </div>
 

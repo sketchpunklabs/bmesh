@@ -425,6 +425,11 @@ export default class Poly2DEditor{
                     this.machineClear();
                 }
                 break;
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            default:
+                this.getActiveMachine().onDblClick( e, this );
+                break;
         }
     };
     // #endregion

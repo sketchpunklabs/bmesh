@@ -161,5 +161,9 @@ export default class EditLinesOp{
             this.dragElm = null;
         }
     };
+
+    onDblClick = ( e, editor )=>{
+        console.log( 'DblClick', this.name );
+    }
     // #endregion
 }

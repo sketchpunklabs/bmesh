@@ -148,10 +148,14 @@ export default class AddPointOp{
         }
     };
 
-    onPointerUp = (e, editor)=>{
+    onPointerUp = ( e, editor )=>{
         console.log( 'AddPoint up' );
         // this.dragElm = null;
         // this.savePoints( editor.pointPool );
     };
+
+    onDblClick = ( e, editor )=>{
+        console.log( 'DblClick', this.name );
+    }
     // #endregion
 }

@@ -19,7 +19,6 @@ export default class ManagePolyOp{
     // #endregion
 
     // #region METHODS
-    
     // #endregion
 
     // #region HELPERS
@@ -88,5 +87,9 @@ export default class ManagePolyOp{
     onPointerUp = (e, editor)=>{
         this.dragElm = null;
     };
+
+    onDblClick = ( e, editor )=>{
+        console.log( 'DblClick', this.name );
+    }
     // #endregion
 }
