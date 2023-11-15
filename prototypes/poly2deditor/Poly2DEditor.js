@@ -14,38 +14,64 @@ import Transform2D  from './maths/Transform2D.js';
 import GridLayer    from './layers/GridLayer.js';
 import ImageLayer   from './layers/ImageLayer.js';
 import SvgLayer     from './layers/SvgLayer.js';
-import PolygonMode  from './modes/PolygonMode.js';
-import PointMode    from './modes/PointMode.js';
+
+import PointPool    from './PointPool.js';
+import LinePool     from './LinePool.js';
+import ManagePolyOp from './ops/ManagePolyOp.js';
+import EditPointsOp from './ops/EditPointsOp.js';
+import EditLinesOp  from './ops/EditLinesOp.js';
+import AddPointOp   from './ops/AddPointOp.js';
 
 export default class Poly2DEditor{
     // #region MAIN
     polygons        = {};                   // Active polygons for editing
     layers          = {};                   // Various layers used by the editor
-    modes           = {};
     transform       = new Transform2D();    // Viewport transform
     itransform      = new Transform2D();    // Inverted for XY coord conversion
     elmContainer    = null;                 // Dom Container
     contentSize     = [0,0];                // Size of content area
 
-    activeMode      = null;
+    polyGroup       = null;
+    pointPool       = null;
+    linePool        = null;
+
     selectedPolygon = null;                 // Which polygon to edit.
     dragPointer     = -1;                   // Drag Pointer ID, also an indicator dragging is active
     eventTimeout    = null;                 // Tell the difference between MouseDown + Double Click Events
 
+    stateMachines   = {};
+    smStack         = [];
+
     constructor( id ){
         this.elmContainer   = document.getElementById( id );
 
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Layers
         this.layers.grid    = new GridLayer( this.elmContainer );
         this.layers.image   = new ImageLayer( this.elmContainer );
         this.layers.svg     = new SvgLayer( this.elmContainer );
 
         this.layers.svg.on( 'pointerdown', this.onPointerDown );
         this.layers.svg.on( 'pointerup', this.onPointerUp );
+        this.layers.svg.on( 'pointermove', this.onPointerMove );
         this.layers.svg.on( 'dblclick', this.onDBLClick );
 
-        this.modes.polygon  = new PolygonMode( this );
-        this.modes.point    = new PointMode( this );
-        this.activeMode     = this.modes.polygon;
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Misc
+        this.polyGroup      = this.layers.svg.newGroup( 'grpPoly' );
+        this.linePool       = new LinePool( this );
+        this.pointPool      = new PointPool( this );
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // State Machines
+        this.stateMachines.managePolygon    = new ManagePolyOp( this );
+        this.stateMachines.editPoints       = new EditPointsOp( this );
+        this.stateMachines.editLines        = new EditLinesOp( this );
+        this.stateMachines.addPoint         = new AddPointOp( this );
+
+        this.editOp = 'editPoints';
+        
+        this.smStack.push( this.stateMachines.managePolygon );
     }
     // #endregion
 
@@ -101,14 +127,27 @@ export default class Poly2DEditor{
         this.updateContentTransform();
     }
 
-    updateContentTransform(){
-        this.itransform.fromInvert( this.transform );
-    
-        // const box = this.layers.image.children[0].getBoundingClientRect();
+    resetTransform(){
+        this.transform.pos[0] = 0;
+        this.transform.pos[1] = 0;
+        this.transform.scl    = 1;
+        this.transform.rot    = 0;
+        this.updateContentTransform();
+    }
 
+    updateContentTransform(){
+        // Invert transform for coordinate transformation
+        this.itransform.fromInvert( this.transform );
+        
+        // Apply transform on all layers
         for( const l of Object.values( this.layers ) ){
             l.setTransform( this.transform );
-            // l.setContentSize( box.width, box.height );
+        }
+
+        // Set content size for each layer
+        const size = this.layers.image.getSize();
+        for( const k in this.layers ){
+            this.layers[ k ].setContentSize( size[0], size[1] );
         }
     }
 
@@ -126,7 +165,6 @@ export default class Poly2DEditor{
         // Apply Inverse Transform 
         return this.itransform.applyTo( p );
     }
-
     // #endregion
 
     // #region OPS
@@ -135,9 +173,7 @@ export default class Poly2DEditor{
         poly.render();
 
         this.polygons[ poly.id ] = poly;
-        // this.svgGroups.poly.appendChild( poly.element );
-
-        this.modes.polygon.add( poly.element );
+        this.polyGroup.appendChild( poly.element );
     }
 
     selectPolygon( id=null ){
@@ -152,6 +188,47 @@ export default class Poly2DEditor{
 
         // Visually select the polygon
         if( this.selectedPolygon ) this.selectedPolygon.isSelected = true;
+    }
+
+    addPoint(){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        if( !this.selectedPolygon ){
+            console.log( 'Need to select a polygon to add a point' );
+            return;
+        }
+
+        if( this.isMachineActive( 'addPoint' ) ){
+            console.log( 'Add point operation is currently on the stack' );
+            return;
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.machinePush( 'addPoint' );
+    }
+
+    setEditMode( name ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let altOp;
+        switch( name ){
+            case 'point':
+                this.editOp = 'editPoints';
+                altOp       = 'editLines';
+                break;
+
+            case 'line':
+                this.editOp = 'editLines';
+                altOp       = 'editPoints';
+                break;
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        if( this.selectedPolygon ){
+            if( this.smStack.length === 1 ){
+                this.machinePush ( this.editOp );
+            }else if( this.getActiveMachine().name === altOp ){
+                this.machineSwitch( this.editOp );
+            }
+        }
     }
 
     fetchImage( url, allowPxPicker=false ){
@@ -172,7 +249,7 @@ export default class Poly2DEditor{
     }
 
     removeSelected(){
-        if( this.activeMode.name === 'polygon' ){
+        if( this.smStack.length === 1 ){
             if( !this.selectedPolygon ){
                 console.log( 'No polygon selected to delete' );
                 return;
@@ -192,114 +269,150 @@ export default class Poly2DEditor{
             // Remove polygon fronm collection
             delete this.polygons[ id ];
         }else{
-            this.activeMode.removeSelected();
+            this.getActiveMachine().removeSelected( this );
         }
     }
     // #endregion
 
-    // #region MODES
-    switchMode( name ){
-        const m = this.modes[ name ];
-        if( !m ){
-            console.error( 'Mode name unknown', name );
+    // #region STATE MACHINE
+    getActiveMachine(){ return this.smStack[ this.smStack.length - 1 ]; }
+    isMachineActive( name ){
+        for( let m of this.smStack ){
+            if( m.name === name ) return true;
+        }
+
+        return false;
+    }
+
+    // Push a new machine to the stack
+    machinePush( name ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const sm = this.stateMachines[ name ];
+        if( !sm ){
+            console.error( 'State machine not found: ', name );
             return;
         }
 
-        if( m.initMode( this ) ){
-            if( this.activeMode && this.activeMode !== m ) this.activeMode.releaseMode( this );
-            this.activeMode = m;
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const prev = this.getActiveMachine();
+        prev.onSuspend( this );                 // Pause active machine
+        sm.onInit( this );                      // Initialize new machine
+        this.smStack.push( sm );                // New machine is now the active one
+    }
 
-            console.log( 'switch mode to ', name );
+    // Swop top most machine
+    machineSwitch( name ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const sm = this.stateMachines[ name ];
+        if( !sm ){
+            console.error( 'State machine not found: ', name );
+            return;
         }
 
-        return this;
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const idx = this.smStack.length - 1;
+        this.smStack[ idx ].onRelease( this );   // End existing machine
+        sm.onInit( this );                       // Start new machine
+        this.smStack[ idx ] = sm;                // Make it the most active
+    }
+
+    // Remove top most machine, switch one
+    machinePop(){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const idx = this.smStack.length - 1;
+        if( idx === 0 ) return;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const sm = this.smStack.pop();
+        sm.onRelease( this );                    // End existing machine
+        this.smStack[ idx - 1 ].onWakeup( this); // Reactivate previous machine
+    }
+
+    // Exit all machines & activate root machine
+    machineClear(){
+        if( this.smStack.length <= 1 ) return;
+
+        while( this.smStack.length > 1 ){
+            this.smStack.pop().onRelease( this );
+        }
+
+        this.smStack[0].onWakeup( this );
     }
     // #endregion
 
     // #region SVG EVENTS
-    onPointerUp = e=>{
+    onPointerUp = (e)=>{
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Cancel delayed pointer down if still active
         if( this.eventTimeout ){
             clearTimeout( this.eventTimeout );
             this.eventTimeout = null;
             return;
         }
 
-        this.activeMode.onPointerUp( e, this );
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.getActiveMachine().onPointerUp( e, this );
 
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         if( this.dragPointer !== -1 ){
-            this.layers.svg
-                .off( 'pointermove', this.onPointerMove )
-                .releasePointer( this.dragPointer );
-
+            this.layers.svg.releasePointer( this.dragPointer );
             this.dragPointer = -1;
         }
     };
     
-    onPointerDown = e=>{        
+    onPointerDown = (e)=>{    
         // Delay down event to make dblClick event work.
-        this.eventTimeout = setTimeout( ()=>this.onDragDown(e), 100 )
+        this.eventTimeout = setTimeout( ()=>this.onPointerDownDelay(e), 120 );
     };
 
-    onDragDown = e=>{
+    onPointerDownDelay = (e)=>{
         // console.log( e.layerX, e.layerY, e.target.nodeName, e.detail );
+        
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Pointer down is valid, clear timeout so pointer up will execute
         this.eventTimeout = null;
 
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         const coord = this.transformCoordinates( e.layerX, e.layerY );
+        const sm    = this.getActiveMachine()
 
-        if( this.activeMode.onPointerDown( coord[0], coord[1], e, this ) ){
-            this.layers.svg.on( 'pointermove', this.onPointerMove );
+        if( sm.onPointerDown( coord[0], coord[1], e, this ) ){
+            // Down will initiate a drag operation
             this.dragPointer = e.pointerId;
         }
     };
 
     onPointerMove = e=>{
-        this.layers.svg.capturePointer( this.dragPointer );
-        e.preventDefault();
-        e.stopPropagation();
-
-        const coord = this.transformCoordinates( e.layerX, e.layerY );
-        this.activeMode.onPointerMove( coord[0], coord[1], e, this );
-
-        /*
-        // this.dragItem.setAttribute( 'cx',  );
-        // this.dragItem.setAttribute( 'cy', e.layerY );
-
-        const p = this.polygon[ this.dragItem.dataset.idx ];
-        p[ 0 ] = e.layerX;
-        p[ 1 ] = e.layerY;
-
-        // Extra HACK for how Translate is being used by the layers
-        // If Scaling, subtract translation to offset the origin being moved.
-        // Then inverse transform should work
-        if( this.transform.scl != 1 ){
-            p[0] -= this.transform.pos[0];
-            p[1] -= this.transform.pos[1];
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Is a Drag operation in progress?
+        if( this.dragPointer !== -1 ){
+            this.layers.svg.capturePointer( this.dragPointer );
+            e.preventDefault();
+            e.stopPropagation();
         }
 
-        // applyTransform( this.invtransform, p ); // Apply Inverse Transform 
-        this.invtransform.apply( p );
-
-        console.log( JSON.stringify( this.polygon ) );
-        this.renderPolygon();
-        */
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const coord = this.transformCoordinates( e.layerX, e.layerY );
+        this.getActiveMachine()
+            .onPointerMove( coord[0], coord[1], e, this );
     };
 
-    onDBLClick = e=>{
+    onDBLClick = e=>{        
         switch( e.target.nodeName ){
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             case 'polygon':{
                 const id = e.target.getAttributeNS( null, 'id' );
 
                 if( this.selectedPolygon && this.selectedPolygon.id === id ){
-                    if( this.activeMode.name === 'polygon' ){
-                        this.switchMode( 'point' );
+                    if( this.smStack.length === 1 ){
+                        this.machinePush( this.editOp );
                     }else{
                         this.selectPolygon( null );
-                        this.switchMode( 'polygon' )
+                        this.machineClear();
                     }
                 }else{ 
                     this.selectPolygon( id );
-                    this.switchMode( 'point' );
+                    this.machinePush( this.editOp );
                 }
 
                 break;
@@ -309,15 +422,11 @@ export default class Poly2DEditor{
             case 'svg':
                 if( this.selectedPolygon ){
                     this.selectPolygon( null );
-                    if( this.activeMode.name !== 'polygon' ) this.switchMode( 'polygon' )
+                    this.machineClear();
                 }
                 break;
         }
-
     };
-    // #endregion
-
-    // #region TRANSFORM
     // #endregion
 }
 

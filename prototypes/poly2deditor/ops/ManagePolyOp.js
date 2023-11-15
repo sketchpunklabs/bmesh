@@ -1,9 +1,9 @@
 
-export default class PolygonMode{
+export default class ManagePolyOp{
     // #region MAIN
     constructor( editor ){
-        this.name           = 'polygon';
-        this.group          = editor.layers.svg.newGroup( 'grpPoly' );
+        this.name           = 'managePolygon';
+        // this.group          = editor.layers.svg.newGroup( 'grpPoly' );
         this.polygon        = null;     // Polygon Object
         this.dragElm        = null;     // Polygon SVG Element 
         this.dragOffset     = [0,0];    // Drag offset, for realistic dragging effect
@@ -11,22 +11,15 @@ export default class PolygonMode{
     }
     // #endregion
 
-    // #region MODE FUNCTIONS
-    initMode( editor ){
-
-        return true;
-    }
-
-    releaseMode( editor ){
-
-        return this;
-    }
+    // #region STATE MACHINE EVENTS
+    onInit( editor ){ console.log( 'onInit', this.name ); }
+    onRelease( editor ){ console.log( 'onRelease', this.name ); }
+    onSuspend( editor ){ console.log( 'onSuspend', this.name ); }
+    onWakeup( editor ){ console.log( 'onWakeup', this.name ); }
     // #endregion
 
     // #region METHODS
-    add( elm ){
-        this.group.appendChild( elm );
-    }
+    
     // #endregion
 
     // #region HELPERS
@@ -67,19 +60,18 @@ export default class PolygonMode{
         this.polygon    = editor.polygons[ id ];
 
         editor.selectPolygon( id );
-        
-        // console.log( id,  this.dragElm, this.polygon );
-
         this.dragPrepare( x, y );
 
         return true;
     };
 
     onPointerMove = ( x, y, e, editor )=>{
-        let pp; // Polygon Point
-        let dp; // Drag Point
+        if( !this.dragElm ) return;
+        
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         // Compute new worldspace position for polygon
+        let pp; // Polygon Point
+        let dp; // Drag Point
         for( let i=0; i < this.dragPoints.length; i++ ){
             pp    = this.polygon.points[i];
             dp    = this.dragPoints[ i ];
@@ -93,6 +85,8 @@ export default class PolygonMode{
         this.polygon.render();
     };
 
-    onPointerUp = (e, editor)=>{};
+    onPointerUp = (e, editor)=>{
+        this.dragElm = null;
+    };
     // #endregion
 }

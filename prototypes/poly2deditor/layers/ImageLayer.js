@@ -22,6 +22,11 @@ export default class ImageLayer{
             console.error( 'UNIMPLMENTED: Canvas Image Loader' );
         }
     }
+
+    getSize(){
+        const box = this.elmView.getBoundingClientRect();
+        return [ box.width, box.height ];
+    }
     // #endregion
 
     // #region INTERFACE
