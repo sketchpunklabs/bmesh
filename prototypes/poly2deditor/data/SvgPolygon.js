@@ -18,6 +18,21 @@ export default class SvgPolygon{
         else    this.element.classList.remove( 'sel' );
     }
 
+    getCenter( out=[0,0] ){
+        out[0] = 0;
+        out[1] = 0;
+
+        for( const p of this.points ){
+            out[0] += p[0];
+            out[1] += p[1];
+        }
+
+        out[0] /= this.points.length;
+        out[1] /= this.points.length;
+
+        return out;
+    }
+
     // #region MISC
     // points='0,0 100,100, 100,50'
     render(){

@@ -44,12 +44,16 @@ export default class Poly2DEditor{
 
     constructor( id ){
         this.elmContainer   = document.getElementById( id );
+        this.elmView        = document.createElement( 'div' );
+        
+        this.elmView.classList.add( 'PolyEditorView' );
+        this.elmContainer.appendChild( this.elmView );
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         // Layers
-        this.layers.grid    = new GridLayer( this.elmContainer );
-        this.layers.image   = new ImageLayer( this.elmContainer );
-        this.layers.svg     = new SvgLayer( this.elmContainer );
+        this.layers.grid    = new GridLayer( this.elmView );
+        this.layers.image   = new ImageLayer( this.elmView );
+        this.layers.svg     = new SvgLayer( this.elmView );
 
         this.layers.svg.on( 'pointerdown', this.onPointerDown );
         this.layers.svg.on( 'pointerup', this.onPointerUp );
@@ -79,12 +83,18 @@ export default class Poly2DEditor{
     setViewportSize( w, h ){
         this.elmContainer.style.width  = w + 'px';
         this.elmContainer.style.height = h + 'px';
+
+        // this.elmView.style.width   = w + 'px';
+        // this.elmView.style.height  = h + 'px';
         return this;
     }
 
     setContentSize( w, h ){
         this.contentSize[ 0 ] = w;
         this.contentSize[ 1 ] = h;
+
+        this.elmView.style.width   = w + 'px';
+        this.elmView.style.height  = h + 'px';
 
         for( const l of Object.values( this.layers ) ){
             l.setContentSize( w, h );
@@ -146,9 +156,51 @@ export default class Poly2DEditor{
 
         // Set content size for each layer
         const size = this.layers.image.getSize();
-        for( const k in this.layers ){
-            this.layers[ k ].setContentSize( size[0], size[1] );
+        const sx   = size[0] / this.transform.scl;  // unscaled size
+        const sy   = size[1] / this.transform.scl;
+        // console.log( size );
+
+        // for( const k in this.layers ){
+        //     this.layers[ k ].setContentSize( size[0], size[1] );
+        // }
+
+        // To remove extra space, need to apply scaled or unscaled size.
+        // this.layers.grid.setContentSize( size[0], size[1] );
+        this.layers.grid.setContentSize( sx, sy );
+        this.layers.image.setContentSize( size[0], size[1] );
+        // this.layers.image.setContentSize( sx, sy );
+        // this.layers.svg.setContentSize( size[0], size[1] );
+        this.layers.svg.setContentSize( sx, sy );
+
+        this.elmView.style.width   = size[0] + 'px';
+        this.elmView.style.height  = size[1] + 'px';
+
+        this.scollToPolygonCenter();
+    }
+
+    scollToPolygonCenter(){
+        if( !this.selectedPolygon ) return;
+
+        const box = this.elmContainer.getBoundingClientRect();
+        const cp  = this.selectedPolygon.getCenter();
+        // const scl = this.transform.scl;
+
+        this.transform.applyTo( cp );
+
+        // Like the inverse required subtraction of transform.pos before transformation,
+        // The opposite is to add transform.pos after transformation when scaled
+        if( this.transform.scl != 1 ){
+            cp[0] += this.transform.pos[0];
+            cp[1] += this.transform.pos[1];
         }
+
+        const sx  = Math.max( 0, Math.round( cp[0] - box.width * 0.5 ) );   // cp[0] * scl 
+        const sy  = Math.max( 0, Math.round( cp[1] - box.height * 0.5 ) );  // cp[1] * scl
+
+        // console.log( 'scroll', sx, sy );
+
+        this.elmContainer.scrollLeft = sx;
+        this.elmContainer.scrollTop  = sy;
     }
 
     transformCoordinates( x, y ){

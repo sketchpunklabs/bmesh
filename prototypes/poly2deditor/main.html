@@ -77,7 +77,8 @@ window.addEventListener( 'load', async _=>{
 
     /* #region POLY EDITOR */
     .PolyEditorCont{ border:0px solid red; box-sizing:border-box;
-        display:inline-block; position:absolute; overflow:auto; }
+        display:block; position:relative; overflow:auto;
+    }
 
     .PolyEditorCont::-webkit-scrollbar { height: 8px; width: 8px; }
     .PolyEditorCont::-webkit-scrollbar-track { border-radius: 0px; background-color: #DFE9EB; }
@@ -86,6 +87,12 @@ window.addEventListener( 'load', async _=>{
     .PolyEditorCont::-webkit-scrollbar-thumb { border-radius: 0px; background-color: #505050; }
     .PolyEditorCont::-webkit-scrollbar-thumb:hover { background-color: #808080; }
     .PolyEditorCont::-webkit-scrollbar-thumb:active { background-color: #62A34B; }
+
+    .PolyEditorView{ border:0px solid red; box-sizing:border-box;
+        display:block; position:relative; overflow:hidden;
+        width: 100%;
+        height: 100%;
+    }
 
     .imgLayer{ user-select:none; z-index:100; position:absolute; opacity: 0.5; overflow:hidden; }
     .svgLayer{ user-select:none; z-index:300; position:absolute; width:100%; height:100%; }
@@ -145,10 +152,10 @@ window.addEventListener( 'load', async _=>{
     /* #endregion */
 </style>
 
-/*
+<!--
 SUGGESTIONS
 - Center view to selected polygon when scaled
-*/
+-->
 
 <div class="container">
     <div class="x" id="lftPanel">

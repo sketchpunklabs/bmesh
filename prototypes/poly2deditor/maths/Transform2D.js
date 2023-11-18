@@ -26,6 +26,17 @@ export default class Transform2D{
         return out;
     }
 
+    applyRotationTo( out=[0,0] ){
+        const rad = this.rot * Math.PI / 180;
+        const cos = Math.cos( rad );
+        const sin = Math.sin( rad );
+        const x   = out[0];
+        const y   = out[1];
+        out[0] = x * cos - y * sin;
+        out[1] = x * sin + y * cos;
+        return out;
+    }
+
     // Create an inverted transform
     fromInvert( t ){
         // Invert rotation
