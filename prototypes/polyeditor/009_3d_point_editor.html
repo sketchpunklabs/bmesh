@@ -1,0 +1,1825 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+// import RayCasting, { nearPoint, intersectPlane, nearSegment } from '../_lib/misc/RayCasting.js';
+
+import DynLineMesh      from '../_lib/meshes/DynLineMesh.js';
+import ShapePointsMesh  from '../_lib/meshes/ShapePointsMesh.js';
+//#endregion
+
+// #region MAIN
+let App   = useDarkScene( useThreeWebGL2() );
+let Ref   = {};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    Debug = await useVisualDebug( App );
+    App.sphericalLook( 0, 20, 6 );
+
+    // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Ref.editor = new Editor( App.renderer );
+
+    let p = new Polygon( [ [-1,0,-1], [1,0,-1], [1,0,1], [-1,0,1] ] );
+    p.id = 1;
+    // p.position = [-0.5,0.5,0];
+    // p.rotation = [ 0, 0, -0.2403516713355941, 0.9706858781738749 ];
+    // p.scale    = [ 1.2, 1, 1 ];
+    Ref.editor.addAnnotation( p );
+
+    // Ref.editor.addAnnotation( new Polygon( [ [2,0,-1], [4,0,-1], [2,0,1] ]) );
+
+    Ref.editor.selectAnnotation( 1 );
+
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    initUI();
+    App.renderLoop();
+    // App.createRenderLoop( onPreRender ).start();
+});
+
+// function onPreRender( dt, et ){}
+
+function initUI(){
+    // document.getElementById( 'inpPolys' ).addEventListener( 'change', (e)=>{ Ref.editor.selectAnnotation( e.target.value ) } );
+    document.getElementById( 'btnDel' ).addEventListener( 'click',    (e)=>{ Ref.editor.removeSelected() } );
+    document.getElementById( 'btnAdd' ).addEventListener( 'click',    (e)=>{ Ref.editor.addPoint() } );
+
+    document.getElementById( 'btnGiz' ).addEventListener( 'click',    (e)=>{ Ref.editor.gizmoSel() } );
+    document.getElementById( 'btnEdit' ).addEventListener( 'click',    (e)=>{ Ref.editor.editSel() } );
+
+    document.getElementById( 'btnTran' ).addEventListener( 'click',    (e)=>{ Ref.editor.setGizmoMode( 'translate' ) } );
+    document.getElementById( 'btnRot' ).addEventListener( 'click',    (e)=>{ Ref.editor.setGizmoMode( 'rotate' ) } );
+    document.getElementById( 'btnScl' ).addEventListener( 'click',    (e)=>{ Ref.editor.setGizmoMode( 'scale' ) } );
+
+    document.getElementById( 'btnExit' ).addEventListener( 'click',    (e)=>{ Ref.editor.machines.clear() } );
+
+    
+}
+// #endregion
+
+
+function randomHSLColor(){
+    // Randomize Hue, Saturation and Lightness
+    const hue = 360 * Math.random();
+    const sat = 0.4 * Math.random() + 0.6;
+    const lit = 0.5 * Math.random() + 0.4;
+
+    // Convert to RGB
+    const a = sat * Math.min(lit, 1 - lit);
+    const k = (n)=>(n + hue / 30) % 12;
+
+    const r = lit - a * Math.max(-1, Math.min(k(0) - 3, Math.min(9 - k(0), 1)));
+    const g = lit - a * Math.max(-1, Math.min(k(8) - 3, Math.min(9 - k(8), 1)));
+    const b = lit - a * Math.max(-1, Math.min(k(4) - 3, Math.min(9 - k(4), 1)));
+
+    // To Hex
+    const c = (~~(r * 255) << 16) | (~~(g * 255) << 8) | ~~(b * 255);
+    // return '#' + ('000000' + c.toString(16)).substr(-6);
+    return c;
+}
+
+class Polygon{
+    id       = window.crypto.randomUUID();
+    color    = randomHSLColor();
+    points   = [];
+    position = [0,0,0];
+    rotation = [0,0,0,1];
+    scale    = [1,1,1];
+
+    constructor( pnts=null, pos=null ){
+        if( pnts ){
+            for( let p of pnts ){
+                this.points.push( p );
+            }
+        }
+
+        if( pos ){
+            this.position[0] = pos[0];
+            this.position[1] = pos[1];
+            this.position[2] = pos[2];
+        }
+    }
+
+    static newRender( o ){
+        const mesh = new DynLineMesh();
+        mesh.name = o.id;
+        this.render( o, mesh );
+        return mesh;
+    }
+
+    static render( o, mesh ){
+        mesh.reset();
+        mesh.position.fromArray( o.position );
+        mesh.quaternion.fromArray( o.rotation );
+        mesh.scale.fromArray( o.scale );
+
+        let i, ii;
+        for( i=0; i < o.points.length; i++ ){
+            ii = ( i+1 ) % o.points.length;
+            mesh.add( o.points[i], o.points[ii], o.color );
+        }
+    }
+
+
+    // render(){
+    //     Debug.ln.reset();
+    //     Debug.pnt.reset();
+
+    //     let i, ii;
+    //     for( let i=0; i < this.points.length; i++ ){
+    //         ii = ( i+1 ) % this.points.length;
+    //         Debug.ln.add( this.points[i], this.points[ii], this.color );
+    //         Debug.pnt.add( this.points[i], ( i==Ref.idx) ?0xfffffff:this.color, 3 );
+    //     }
+    // }
+}
+
+class Editor{
+    // #region MAIN
+    canvas      = null;
+    machines    = new StateMachines();
+    camCtrl     = App.camCtrl;
+    camera      = App.camera;
+    renderer    = App.renderer;
+    annotations = {};
+
+    selAnnotation = null;
+
+    constructor( renderer ){
+        this.canvas = renderer.domElement;
+        console.log( App );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Set Events
+        window.addEventListener( 'pointerdown', this.onKeyPointerDown, true );
+        window.addEventListener( 'keydown', this.onKeyDown, true );
+        window.addEventListener( 'keyup', this.onKeyUp, true );
+
+        this.canvas.addEventListener( 'pointerdown', this.onPointerDown, false );
+        this.canvas.addEventListener( 'pointermove', this.onPointerMove, false );
+        this.canvas.addEventListener( 'pointerup', this.onPointerUp, false );
+        this.canvas.addEventListener( 'pointercancel', this.onPointerCancel, false );
+        this.canvas.addEventListener( 'contextmenu', this.onContextMenu, false );
+        this.canvas.addEventListener( 'dblclick', this.onDblClick );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Setup State Machines
+
+        this.machines.reg(
+            new DefaultOp( this ),
+            new GizmoOp( this ),
+            new EditPolyOp( this ),
+            new AddPolyPointOp( this ),
+        );
+
+        this.machines.push( 'default' );
+    }
+    // #endregion
+
+    // #region METHODS
+    selectAnnotation( id ){
+        if( id === undefined ){
+            this.selAnnotation = null;
+            return;
+        }
+
+        const o = this.annotations[ id ];
+        if( !this.annotations[ id ] ){ console.log( 'No annotation exists with ID', id ); return; }
+
+        if( this.selAnnotation !== null ){
+            console.log( 'PreExist Selection' );
+        }
+
+        this.selAnnotation = o;
+    }
+
+    addAnnotation( o ){
+        console.log( o.constructor.name );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        if( this.annotations[ o.id ] ){
+            console.log( 'Annotation already exists with ID', o.id );
+            return;
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        switch( o.constructor.name ){
+            // -------------------------------------
+            case 'Polygon':{
+                const mesh = Polygon.newRender( o );
+                this.annotations[ o.id ] = {
+                    data    : o,
+                    render  : mesh, 
+                };
+
+                App.scene.add( mesh );
+                break;
+            }
+
+            // -------------------------------------
+            default:
+                console.log( 'AddAnnotation, Unknown annotation type', o.constructor.name );
+                return;
+        }
+    }
+
+    setGizmoMode( m ){ this.machines.getMachine( 'gizmo' ).setMode( m ); }
+
+    removeSelected(){
+        const sm = this.machines.getCurrent();
+        if( !sm.removeSelected ){
+            console.log( 'Active state machine does not have support for remove', sm.name );
+            return;
+        }
+        sm.removeSelected();
+    }
+
+    gizmoSel(){
+        if( !this.selAnnotation ){
+            console.log( 'Annotation is needed to be selected' );
+            return;
+        }
+
+        if( !this.machines.isActive( 'gizmo' ) ){
+            this.machines.clear().push( 'gizmo', this );
+        }
+    }
+
+    editSel(){
+        if( !this.selAnnotation ){
+            console.log( 'Annotation is needed to be selected' );
+            return;
+        }
+
+        if( !this.machines.isActive( 'editpoly' ) ){
+            this.machines.clear().push( 'editpoly', this );
+        }
+    }
+
+    addPoint(){
+        if( !this.selAnnotation ){
+            console.log( 'Annotation is needed to be selected' );
+            return;
+        }
+
+        if( !this.machines.isActive( 'addpolypoint' ) ){
+            this.machines.push( 'addpolypoint', this );
+        }
+    }
+    
+    // #endregion
+
+    // #region POINTER EVENTS
+    eventTimeout   = null;
+    dragPointer    = -1;
+    
+    onPointerDown = ( e )=>{
+        // Delay down event to make dblClick event work.
+        // this.eventTimeout = setTimeout( ()=>this.onPointerDownDelay( e ), 120 );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Pointer down is valid, clear timeout so pointer up will execute
+        this.eventTimeout = null;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Down will initiate a drag operation
+        if( this.machines.getCurrent().onPointerDown( e.layerX, e.layerY, e, this ) ){
+            // Down will initiate a drag operation
+            this.dragPointer = e.pointerId;
+        }
+    };
+
+    onPointerDownDelay = ( e )=>{
+        console.log( 'PointerDownDelay' );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Pointer down is valid, clear timeout so pointer up will execute
+        this.eventTimeout = null;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Down will initiate a drag operation
+        if( this.machines.getCurrent().onPointerDown( e.layerX, e.layerY, e, this ) ){
+            // Down will initiate a drag operation
+            this.dragPointer = e.pointerId;
+        }
+    };
+
+    onPointerMove = ( e )=>{
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Is a Drag operation in progress?
+        if( this.dragPointer !== -1 ){
+            this.canvas.setPointerCapture( this.dragPointer );
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.machines.getCurrent().onPointerMove( e.layerX, e.layerY, e, this );
+    };
+
+    onPointerUp = ( e )=>{
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Cancel delayed pointer down if still active
+        if( this.eventTimeout ){
+            clearTimeout( this.eventTimeout );
+            this.eventTimeout    = null;
+            this.camCtrl.enabled = true;
+            return;
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.machines.getCurrent().onPointerUp( e, this );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        if( this.dragPointer !== -1 ){
+            this.canvas.releasePointerCapture( this.dragPointer );
+            this.dragPointer = -1;
+        }
+    };
+
+    onPointerCancel = ( e )=>{
+        console.log( 'onPointerCancel' );
+    };
+
+    onContextMenu = e => {
+        console.log( 'onContextMenu' );
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    };
+
+    onDblClick = ( e )=>{
+        console.log( 'DblClick' );
+        e.preventDefault();
+        e.stopPropagation();
+    };
+    // #endregion
+    
+    // #region KEYBOARD EVENTS
+    isCanvasFocused = false;
+
+    // Global key down event, tests what is clicked
+    onKeyPointerDown = ( e )=>{
+        // Test if canvas is clicked, mark it as focused
+        this.isCanvasFocused = ( e.target === this.canvas );
+    };
+
+    onKeyDown = ( e )=>{
+        if( !this.isCanvasFocused ) return;
+        // console.log( 'KeyDown', e.key );
+        this.machines.getCurrent()?.onKeyDown( e, this );
+    };
+
+    onKeyUp = ( e )=>{
+        if( !this.isCanvasFocused ) return;
+        // console.log( 'KeyUp', e.key );
+        this.machines.getCurrent()?.onKeyUp( e, this );
+    };
+    // #endregion
+}
+
+// #region STATE MACHINES
+
+class StateMachines{
+    // #region MAIN
+    list  = {}; // Collection of registered state machines
+    stack = []; // Stack of active state machines
+    // #endregion
+
+    // #region SETTERS / GETTERS
+
+    // Register a state machine
+    reg( ...ary ){
+        for (const sm of ary) this.list[sm.name] = sm;
+        return this;
+    }
+
+    // Get the top most active state machine in the stack
+    getCurrent(){ return this.stack[this.stack.length - 1]; }
+
+    // Check if the named state machine is currently in the stack
+    isActive( name ){
+        for( const m of this.stack ){
+            if( m.name === name ) return true;
+        }
+        return false;
+    }
+
+    get stackSize(){ return this.stack.length; }
+
+    getMachine( name ){
+        const sm = this.list[ name ];
+        return ( sm )? sm : null;
+    }
+
+    // #endregion
+
+    // #region MANAGE STACK
+
+    // Push a new machine to the top of the stack
+    push( name, obj ){
+        const sm = this.list[name];
+        if( sm ){            
+            if( !sm.validateStartup( obj ) ){
+                console.log( 'Machine failed startup validation', sm.name );
+                return this;
+            }
+
+            if( this.stack.length > 0 ){
+                const prev = this.getCurrent();
+                prev.onSuspend( obj );  // Pause active machine
+            }
+
+            sm.onInit( obj );           // Initialize new machine
+            this.stack.push( sm );      // New machine is now the active one
+        }else{
+            console.error( 'State machine not found: ', name );
+        }
+
+        return this;
+    }
+
+    // Remove top active machine & reactivate previous one
+    pop( obj ){
+        const idx = this.stack.length - 1;
+        if( idx !== 0 ){
+            const sm = this.stack.pop();
+            sm.onRelease( obj );                    // End existing machine
+            this.stack[idx - 1].onWakeup( obj );    // Reactivate previous machine
+        }
+        return this;
+    }
+
+    // Swop top active machine with a new one
+    switch( name, obj ){
+        const sm = this.list[name];
+        if( sm ){
+            if( !sm.validateStartup( obj ) ){
+                console.log( 'Machine failed startup validation', sm.name );
+                return this;
+            }
+
+            const idx = this.stack.length - 1;
+            this.stack[idx].onRelease( obj );   // End existing machine
+            sm.onInit( obj );                   // Start new machine
+            this.stack[idx] = sm;               // Make it the most active
+        }else{
+            console.error('State machine not found: ', name);
+        }
+
+        return this;
+    }
+
+    // Exit all machines & activate root machine
+    clear( obj ){
+        if( this.stack.length > 1 ){
+            while( this.stack.length > 1 ){
+                this.stack.pop().onRelease( obj );
+            }
+            this.stack[0].onWakeup( obj );
+        }
+        return this;
+    }
+
+    // #endregion
+}
+
+class MachineBase{
+  // #region MAIN
+  name = 'base';
+  // constructor( obj ){}
+  // #endregion
+
+  // #region STATE MACHINE INTERFACE
+  onInit( obj ){ console.log( 'OnInit', this.name ); }
+  onRelease( obj ){ console.log( 'onRelease', this.name ); }
+  onSuspend( ob ){ console.log( 'onSuspend', this.name ); }
+  onWakeup( obj ){ console.log( 'onWakeup', this.name ); }
+  validateStartup( obj ){ console.log( 'validateStartup', this.name ); return true; }
+  // #endregion
+
+  // #region MACHINE OPERATION INTERFACE
+  onPointerDown( x, y, e, obj ){ console.log( 'onPointerDown', x, y, this.name ); return false; }
+  onPointerMove( x, y, e, obj ){ console.log( 'onPointerMove', x, y, this.name ); }
+  onPointerUp( e, obj ){ console.log( 'onPointerUp', this.name ); }
+  onPointerCancel( e, obj ){ console.log( 'onPointerCancel', this.name ); }
+  
+  onDblClick( e, obj ){ console.log( 'onDblClick', x, y, this.name ); }
+  onContextMenu( e, obj ){ console.log( 'onContextMenu', this.name ); }
+
+  onKeyDown( e, obj ){ console.log( 'onKeyDown', e.key, this.name ); }
+  onKeyUp( e, ob ){ console.log( 'onKeyUp', e.key, this.name ); }
+  // #endregion
+}
+
+// #endregion
+
+// #region MACHINE OPS
+
+class DefaultOp extends MachineBase{
+    name = 'default';
+    onPointerMove( x, y, e, obj ){}
+}
+
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
+class GizmoOp extends MachineBase{
+    // #region MAIN
+    name        = 'gizmo';
+    gizmo       = null;
+    sel         = null;
+    obj         = null;
+    constructor( obj ){
+        super();
+
+        this.gizmo = new TransformControls( App.camera, App.renderer.domElement );
+        this.gizmo.addEventListener( 'dragging-changed', this.onDragChange );
+        this.gizmo.addEventListener( 'change', this.onChange );
+        this.gizmo.setSpace( 'local' );
+
+        App.scene.add( this.gizmo );
+    }
+    // #endregion
+
+    // #region METHODS
+    setMode( m ){ this.gizmo.setMode( m ); }
+    // #endregion
+
+    // #region STATE MACHINE INTERFACE
+    onInit( obj ){
+        console.log( 'onInit', this.name );
+        this.sel = obj.selAnnotation;
+        this.obj = obj;
+        this.gizmo.attach( this.sel.render );
+    }
+    
+    onRelease( obj ){
+        this.gizmo.detach();
+        this.sel = null;
+        this.obj = null;
+    }
+
+    onSuspend( ob ){ console.log( 'onSuspend', this.name ); }
+    onWakeup( obj ){ console.log( 'onWakeup', this.name ); }
+
+    validateStartup( obj ){
+        console.log( 'validateStartup', this.name ); 
+
+        if( !obj.selAnnotation ){
+            console.log( 'No annotation selected' );
+            return false;
+        }
+
+        return true;
+    }
+    // #endregion
+
+    // #region MACHINE OPERATION INTERFACE
+    onPointerMove( x, y, e, obj ){}
+
+    onKeyUp( e, ob ){ 
+        // console.log( 'onKeyUp', e.key.toUpperCase(), this.name );
+        switch( e.key.toUpperCase() ){
+            case '1': this.gizmo.setMode( 'translate' ); break;
+            case '2': this.gizmo.setMode( 'rotate' ); break;
+            case '3': this.gizmo.setMode( 'scale' ); break;
+            case '4': this.gizmo.setSpace( 'local' ); break;
+            case '5': this.gizmo.setSpace( 'world' ); break;
+        }
+    }
+    // #endregion
+
+    // #region GIZMO EVENTS
+    onDragStart(){ console.log( 'DragStart' ) }
+    onDragStop(){
+        const d = this.sel.data;        
+        switch( this.gizmo.mode ){
+            case 'translate':{
+                const t       = this.gizmo.object.position.toArray();
+                d.position[0] = t[0];
+                d.position[1] = t[1];
+                d.position[2] = t[2];
+            break; }
+            
+            case 'rotate':{
+                const t       = this.gizmo.object.quaternion.toArray();
+                d.rotation[0] = t[0];
+                d.rotation[1] = t[1];
+                d.rotation[2] = t[2];
+                d.rotation[3] = t[3];
+            break; }
+            
+            case 'scale':{
+                const t    = this.gizmo.object.scale.toArray();
+                d.scale[0] = t[0];
+                d.scale[1] = t[1];
+                d.scale[2] = t[2];
+            break; }
+        }
+    }
+
+    onDragChange = e=>{
+        // Disable camera when dragging the gizmo
+        if( this.obj?.camCtrl ) this.obj.camCtrl.enabled = !e.value;
+
+        // Run seperate drag events
+        if( e.value )   this.onDragStart();
+        else            this.onDragStop();
+    };
+
+    onChange = ()=>{
+        // const o = gizmo.object;
+        // if(! (o && gizmo.dragging) ) return;
+        
+        // switch( gizmo.mode ){
+        //     case 'translate':
+        //         if( self.onMove )   self.onMove( o.position.toArray() );
+        //         break;
+
+        //     case 'rotate':
+        //         if( self.onRotate ) self.onRotate( o.quaternion.toArray() );
+        //         break;
+        // }
+    };
+    // #endregion
+}
+
+class EditPolyOp extends MachineBase{
+    // #region MAIN
+    name            = 'editpoly';
+    sel             = null;             // Selected Object
+    obj             = null;             // Passed data object
+
+    pointRender     = null;             // Render Points
+    gridPlane       = null;
+    caster          = new RayCasting(); // Ray Casting functionality
+    transform       = new Transform();  // Local to World Transform
+    invTransform    = new Transform();  // World to Local Transform
+
+    points          = [];               // Worldspace positions of polygon
+    dragPoints      = [];               // Localized positions to be dragged
+    dragOffset      = [0,0,0];          // Offset to add to dragged points
+    dragNorm        = [0,0,0];          // Plane normal direction for intersection & snapping
+    hitPoint        = [0,0,0];          // Position of last successful ray hit
+
+    hoverIdx        = -1;               // Index of point that the mouse is over
+    selectIdx       = [];               // Array of selected points
+    isDragging      = false;            // Is user dragging points?
+
+    constructor( obj ){
+        super();
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.pointRender = new ShapePointsMesh();
+        this.pointRender.visible = false;
+        this.pointRender.add( [0,0,0], 0x00ff00, 3, 1 );
+        App.scene.add( this.pointRender );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const geo = new THREE.PlaneGeometry( 1, 1 );
+        geo.rotateX( -Math.PI * 0.5 );
+        
+        this.gridPlane = new THREE.Mesh( geo, circleGridMaterial() );
+        this.gridPlane.visible = false;
+        this.gridPlane.scale.setScalar( 6 );
+
+        App.scene.add( this.gridPlane );
+    }
+    // #endregion
+
+    // #region METHODS
+    removeSelected(){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        if( this.selectIdx.length === 0 ){
+            console.log( 'No point selected' );
+            return;
+        }
+        
+        const poly = this.sel.data;
+        if( poly.points.length - this.selectIdx.length < 3 ){
+            console.log( 'Can not delete point, polygon needs a min of 3 points' );
+            return;
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Sort points in descendng order to make
+        // deleting points from an array easier
+        if( this.selectIdx.length > 1 ){
+            this.selectIdx.sort( ( a, b )=>{ return ( a === b )? 0 : ( a < b )? 1 : -1; });
+        }
+
+        for( const idx of this.selectIdx ){
+            poly.points.splice( idx, 1 );
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.selectIdx.length =  0;
+        this.hoverIdx         = -1;
+        this.initPoints();          // Reset Worldspace points
+        this.renderPoints();        // Render WS Points
+        Polygon.render( this.sel.data, this.sel.render ); // Redraw Polygon Lines
+    }
+    // #endregion
+
+    // #region STATE MACHINE INTERFACE
+    onInit( obj ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        console.log( 'onInit', this.name );
+        this.sel        = obj.selAnnotation;
+        this.obj        = obj;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Transform points to worldspace
+        const poly = this.sel.data;
+        this.transform.set( poly.rotation, poly.position, poly.scale );
+        this.invTransform.fromInvert( this.transform );
+        this.initPoints();
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const v = [0,-1,0];
+        transformQuat( v, poly.rotation );
+
+        v[0] = v[0] * 0.02 + poly.position[0];
+        v[1] = v[1] * 0.02 + poly.position[1];
+        v[2] = v[2] * 0.02 + poly.position[2];
+
+        this.gridPlane.visible = true;
+        this.gridPlane.position.fromArray( v );
+        this.gridPlane.quaternion.fromArray( poly.rotation );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.pointRender.visible = true;
+        this.renderPoints();
+    }
+    
+    onRelease( obj ){
+        this.selectIdx.length   = 0;
+        this.hoverIdx           = -1;
+        this.sel                = null;
+        this.obj                = null;
+
+        this.pointRender.reset();
+        this.pointRender.visible = false;
+        this.gridPlane.visible   = false;
+    }
+
+    onSuspend( ob ){ console.log( 'onSuspend', this.name ); }
+    onWakeup( obj ){ 
+        console.log( 'onWakeup', this.name );
+        this.selectIdx.length = 0;
+        this.hoverIdx         = -1;
+        this.initPoints().renderPoints();
+    }
+
+    validateStartup( obj ){
+        console.log( 'validateStartup', this.name ); 
+
+        if( !obj.selAnnotation && obj.selAnnotation.data instanceof Polygon ){
+            console.log( 'No annotation selected or not a polygon' );
+            return false;
+        }
+
+        return true;
+    }
+    // #endregion
+
+    // #region MACHINE OPERATION INTERFACE
+    onPointerDown( x, y, e, obj ){
+        this.updateCaster( x, y );
+
+        const iHit = this.rayPointTest();
+        if( iHit !== -1 ){
+            if( e.shiftKey ){
+                const i = this.selectIdx.indexOf( iHit );
+                if( i === -1 )  this.selectIdx.push( iHit );
+                else            this.selectIdx.splice( i, 1 );
+            }else if( this.selectIdx.length <= 1 || e.ctrlKey ){
+                this.selectIdx.length = 0;
+                this.selectIdx[0]     = iHit;
+            }
+
+            this.renderPoints();
+            this.prepareDrag();
+            return true;
+        }
+
+        return false;
+    }
+
+    onPointerMove( x, y, e, obj ){
+        this.updateCaster( x, y );
+        if( !this.isDragging ){
+            const iHit = this.rayPointTest();
+            if( this.hoverIdx !== iHit ){
+                this.hoverIdx = iHit;
+                this.renderPoints();
+            }
+        }else{
+            if( this.rayPlaneTest() ) this.movePoints();
+        }
+    }
+    
+    onPointerUp( e, obj ){
+        if( this.isDragging ){
+            this.updatePolyPoints();
+            Polygon.render( this.sel.data, this.sel.render );
+        }
+
+        this.obj.camCtrl.enabled = true;
+        this.isDragging          = false;
+    }
+
+    onKeyDown( e, obj ){}
+    onKeyUp( e, obj ){}
+    // #endregion
+
+    // #region HELPERS
+    // Transform poly localspace points to world space
+    initPoints(){
+        const poly = this.sel.data;
+        this.points.length = 0;
+        for( let p of poly.points ){
+            this.points.push( this.transform.transformVec3( p.slice() ) );
+        }
+        return this;
+    }
+
+    // Draw worlspace points
+    renderPoints(){
+        const pnt  = this.pointRender;
+        pnt.reset();
+        
+        for( let i=0; i < this.points.length; i++ ){
+            if( i === this.hoverIdx || this.selectIdx.indexOf( i ) !== -1 ){
+                pnt.add( this.points[i], 0xffffff, 6, 2 );
+            }else{
+                pnt.add( this.points[i], 0xa0a0a0, 4, 1 );
+            }
+        }
+
+        return this;
+    }
+
+    // prepare data to drag multiple points
+    prepareDrag(){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Compute centroid of selected points
+        let cx = 0;
+        let cy = 0;
+        let cz = 0;
+        for( let i of this.selectIdx ){
+            cx += this.points[ i ][0];
+            cy += this.points[ i ][1];
+            cz += this.points[ i ][2];
+        }
+
+        cx /= this.selectIdx.length;
+        cy /= this.selectIdx.length;
+        cz /= this.selectIdx.length;
+
+        this.dragOffset[0] = cx - this.hitPoint[0];
+        this.dragOffset[1] = cy - this.hitPoint[1];
+        this.dragOffset[2] = cz - this.hitPoint[2];
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Localize points to centroid
+        this.dragPoints.length = 0;
+        for( let i of this.selectIdx ){
+            this.dragPoints.push([
+                this.points[ i ][0] - cx,
+                this.points[ i ][1] - cy,
+                this.points[ i ][2] - cz,
+            ]);
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.obj.camCtrl.enabled = false;
+        this.isDragging          = true;
+        transformQuat( [0,1,0], this.transform.rot, this.dragNorm );
+    }
+
+    updateCaster( x, y ){
+        this.caster
+            .updateNdc( x, y, this.obj.renderer )
+            .updateRay( this.obj.camera );
+    }
+
+    rayPointTest(){
+        const [ rayStart, rayEnd ] = this.caster.getRaySegment( this.obj.camera );
+        let min     = Infinity;
+        let iHit    = -1;
+        let lmtDist = 0.2 ** 2;
+        let dist;
+        let p;
+        let hit;
+
+        for( let i=0; i < this.points.length; i++ ){
+            p    = this.points[i];
+            hit  = nearPoint( rayStart, rayEnd, p );
+            if( hit === null ) continue;
+
+            dist = ( hit[0] - p[0] ) ** 2 + 
+                   ( hit[1] - p[1] ) ** 2 + 
+                   ( hit[2] - p[2] ) ** 2;
+
+            if( dist < lmtDist && dist < min ){
+                min  = dist;
+                iHit = i;
+                this.hitPoint = hit;
+            }
+        }
+
+        return iHit;
+    }
+    
+    rayPlaneTest(){
+        const [ rayStart, rayEnd ] = this.caster.getRaySegment( this.obj.camera );
+        const hit = intersectPlane( rayStart, rayEnd, this.transform.pos, this.dragNorm );
+
+        if( hit ){
+            this.hitPoint = hit;
+            return true;
+        }
+
+        return false;
+    }
+
+    // Move selected points & snap to plane
+    movePoints(){
+        let ii;
+        for( let i=0; i < this.dragPoints.length; i++ ){
+            ii = this.selectIdx[ i ];
+            this.points[ ii ][0] = this.dragPoints[i][0] + this.hitPoint[0] + this.dragOffset[0];
+            this.points[ ii ][1] = this.dragPoints[i][1] + this.hitPoint[1] + this.dragOffset[1];
+            this.points[ ii ][2] = this.dragPoints[i][2] + this.hitPoint[2] + this.dragOffset[2];
+
+            snapPointToPlane( this.points[ ii ], this.transform.pos, this.dragNorm );
+        }
+
+        this.renderPoints();
+    }
+    
+    // Save WS points to poly in local space
+    updatePolyPoints(){
+        const o = this.sel.data;
+        for( let i=0; i < this.points.length; i++ ){
+            this.invTransform.transformVec3Rev( this.points[i], o.points[i] );
+        }
+    }
+    // #endregion
+}
+
+class AddPolyPointOp extends MachineBase{
+    // #region MAIN
+    name            = 'addpolypoint';
+    sel             = null;
+    caster          = new RayCasting();
+    obj             = null;
+    pointRender     = null;             // Render Points
+    hitPoint        = [0,0,0];          // Position of last successful ray hit
+    points          = [];               // Worldspace positions of polygon
+
+    constructor( obj ){
+        super();
+        this.pointRender = new ShapePointsMesh();
+        this.pointRender.visible = false;
+        this.pointRender.add( [0,0,0], 0x00ff00, 4, 1 );
+        App.scene.add( this.pointRender );
+    }
+    // #endregion
+
+    // #region STATE MACHINE INTERFACE
+    onInit( obj ){
+        console.log( 'onInit', this.name );
+        this.sel = obj.selAnnotation;
+        this.obj = obj;
+        this.initPoints();
+    }
+    
+    onRelease( obj ){
+        console.log( 'onRelease', this.name );
+        this.sel      = null;
+        this.obj      = null;
+        this.hitPoint = null;
+        this.pointRender.visible = false;
+    }
+
+    onSuspend( ob ){ console.log( 'onSuspend', this.name ); }
+    onWakeup( obj ){ console.log( 'onWakeup', this.name ); }
+
+    validateStartup( obj ){
+        // console.log( 'validateStartup', this.name ); 
+        // if( !obj.machines.isActive( 'editpoly' ) ){
+        //     console.log( 'Edit Poly Machine must be active on the stack' );
+        //     return false;
+        // }
+        return true;
+    }
+    // #endregion
+
+    // #region MACHINE OPERATION INTERFACE
+    onPointerDown( x, y, e, obj ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.caster
+            .updateNdc( x, y, this.obj.renderer )
+            .updateRay( this.obj.camera );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const iHit = this.rayEdgeTest();
+        if( iHit !== -1 ){
+            const poly = this.sel.data;
+            const p    = this.hitPoint.slice();
+            
+            // Tranform point to local space
+            const t = new Transform().fromInvert( poly.rotation, poly.position, poly.scale );
+            t.transformVec3Rev( this.hitPoint, p );
+            
+            // Add point & render polyline
+            poly.points.splice( iHit+1, 0, p );
+            Polygon.render( this.sel.data, this.sel.render );
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Revert to previous machine
+        obj.machines.pop();
+        return false;
+    }
+
+    onPointerMove( x, y, e, obj ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.caster
+            .updateNdc( x, y, this.obj.renderer )
+            .updateRay( this.obj.camera );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const iHit = this.rayEdgeTest();
+        if( iHit !== -1 ){
+            // Show possible point
+            this.pointRender.position.fromArray( this.hitPoint );
+            this.pointRender.visible = true;
+        }else{
+            // No point to show
+            this.pointRender.visible = false;
+        }
+    }
+
+    onKeyDown( e, obj ){}
+    onKeyUp( e, obj ){}
+    // #endregion
+
+    // #region HELPERS
+    initPoints(){
+        const poly = this.sel.data;
+        this.points.length = 0;
+
+        const t = new Transform();
+        t.set( poly.rotation, poly.position, poly.scale );
+
+        for( let p of poly.points ){
+            this.points.push( t.transformVec3( p.slice() ) );
+        }
+    }
+
+    rayEdgeTest(){
+        const [ rayStart, rayEnd ] = this.caster.getRaySegment( this.obj.camera );
+        const lmtDist = 0.2;
+        let iHit    = -1;
+        let ii;
+        let hit;
+
+        for( let i=0; i < this.points.length; i++ ){
+            ii  = ( i+1 ) % this.points.length;
+            hit = nearSegment( rayStart, rayEnd, this.points[i], this.points[ii] );
+
+            if( hit && hit[0] < lmtDist ){                
+                this.hitPoint  = hit[1];
+                return i;
+            }
+        }
+
+        return -1;
+    }
+    // #endregion
+}
+// #endregion
+
+
+// #region CIRCLE GRID
+// https://madebyevan.com/shaders/grid/
+function circleGridMaterial( props={} ){
+    props = Object.assign( {
+        oRadius     : 0.49,
+        iRadius     : 0.47,
+        gridSize    : 0.1,
+        lineSize    : 0.1,
+        color       : '#202020',
+    }, props );
+
+    const mat = new THREE.RawShaderMaterial({
+        name            : 'CircleGrid',
+        side            : THREE.DoubleSide,
+        depthTest       : true,
+        transparent 	: true,
+        alphaToCoverage : true,
+        extensions      : { derivatives : true },
+
+        uniforms        : {
+            oRadius     : { value: props.oRadius },
+            iRadius     : { value: props.iRadius },
+            gridSize    : { value: props.gridSize },
+            lineSize    : { value: props.lineSize },
+            color       : { value: new THREE.Color( props.color ) },
+        },
+
+        vertexShader    : `#version 300 es
+        in	vec3    position;
+        in  vec3    normal;
+        in	vec2    uv;
+        
+        // uniform highp vec3 cameraPosition;
+
+        uniform mat4  modelMatrix;
+        uniform mat4  viewMatrix;
+        uniform mat4  projectionMatrix;
+
+        out vec3 fragLPos;
+        out vec3 fragSPos;
+
+        // ############################################################
+
+        vec3 decomposeScaleFromMat4( mat4 m ){
+            return vec3(
+                length( vec3( m[0][0], m[0][1], m[0][2] ) ),
+                length( vec3( m[1][0], m[1][1], m[1][2] ) ),
+                length( vec3( m[2][0], m[2][1], m[2][2] ) )
+            );
+        }
+
+        // ############################################################
+
+        void main(){
+            vec4 wPos       = modelMatrix * vec4( position, 1.0 );
+            
+            fragLPos        = position.xyz;
+            fragSPos        = position.xyz * decomposeScaleFromMat4( modelMatrix );
+
+            gl_Position     = projectionMatrix * viewMatrix * wPos;
+        }`,
+
+        fragmentShader  : `#version 300 es
+        precision mediump float;
+
+        in vec3 fragLPos;
+        in vec3 fragSPos;
+        out vec4 outColor;
+
+        uniform float oRadius;
+        uniform float iRadius;
+        uniform float gridSize;
+        uniform float lineSize;
+        uniform vec3  color;
+
+        // #####################################################################
+
+        float circle( float radius, float len, float dxdy ){
+            // float dxdy = fwidth( len );
+            return 1.0 - smoothstep( radius-dxdy, radius+dxdy, len );
+        }
+
+        float ring( float oRadius, float iRadius, float len, float dxdy ){
+            // float dxdy   = fwidth( len );
+            float omask  = smoothstep( oRadius-dxdy, oRadius+dxdy, len );
+            float imask  = smoothstep( iRadius-dxdy, iRadius+dxdy, len );
+            return imask - omask;
+        }
+
+        // https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8
+        // https://www.shadertoy.com/view/mdVfWw
+        float pristineGrid( vec2 uv, vec2 lineWidth ){
+            vec2 ddx         = dFdx( uv );
+            vec2 ddy         = dFdy( uv );
+            vec2 uvDeriv     = vec2(
+                length( vec2( ddx.x, ddy.x ) ), 
+                length( vec2( ddx.y, ddy.y ) )
+            );
+            
+            bvec2 invertLine = bvec2( lineWidth.x > 0.5, lineWidth.y > 0.5 );
+            
+            vec2 targetWidth = vec2(
+                invertLine.x ? 1.0 - lineWidth.x : lineWidth.x,
+                invertLine.y ? 1.0 - lineWidth.y : lineWidth.y
+            );
+
+            vec2 drawWidth = clamp( targetWidth, uvDeriv, vec2(0.5) );
+            vec2 lineAA    = uvDeriv * 1.5;
+            vec2 gridUV    = abs(fract(uv) * 2.0 - 1.0);
+            gridUV.x       = invertLine.x ? gridUV.x : 1.0 - gridUV.x;
+            gridUV.y       = invertLine.y ? gridUV.y : 1.0 - gridUV.y;
+            
+            vec2 grid2 = smoothstep(drawWidth + lineAA, drawWidth - lineAA, gridUV );
+            grid2     *= clamp( targetWidth / drawWidth, 0.0, 1.0 );
+            grid2      = mix(grid2, targetWidth, clamp( uvDeriv * 2.0 - 1.0, 0.0, 1.0 ) );
+            grid2.x    = invertLine.x ? 1.0 - grid2.x : grid2.x;
+            grid2.y    = invertLine.y ? 1.0 - grid2.y : grid2.y;
+            
+            return mix( grid2.x, 1.0, grid2.y );
+        }
+
+        // #####################################################################
+        void main(){
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            float len  = length( fragLPos.xz );
+            float dxdy = fwidth( len );
+
+            float maskCircle = circle( 0.01, len, dxdy );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // Grid Mask
+            float maskGrid  = pristineGrid( fragSPos.xz / gridSize, vec2( lineSize ) );
+            // outColor.rgb    = vec3( maskGrid );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // Mask to cut the grid
+            float mRadius  = iRadius * 0.5 + oRadius * 0.5;
+            float maskCut  = 1.0 - step( mRadius, len );
+            // outColor.rgb   = vec3( maskCut );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // Ring Mask
+            float maskRing = ring( oRadius, iRadius, len, dxdy );
+            // outColor.rgba  = vec4( maskRing );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            outColor.rgba  = vec4( max( maskCircle, max( maskRing, maskGrid * maskCut )) );
+            outColor.rgb  *= color;
+        }`
+    });
+
+    return mat;
+}
+// #endregion
+
+// #region MATHS
+
+function snapPointToPlane( pnt, planePos, planeNorm, out=null ) {
+    // Dot Product between pnt vector & normal
+    const dot = 
+        ( pnt[0] - planePos[0] ) * planeNorm[0] + 
+        ( pnt[1] - planePos[1] ) * planeNorm[1] + 
+        ( pnt[2] - planePos[2] ) * planeNorm[2];
+
+    // Snap point to plane
+    out    = out || pnt;
+    out[0] = pnt[0] - dot * planeNorm[0];
+    out[1] = pnt[1] - dot * planeNorm[1];
+    out[2] = pnt[2] - dot * planeNorm[2];
+
+    return out;
+}
+
+// #region QUAT HELPERS
+function transformQuat( v, q, out=null ){ 
+    const qx = q[ 0 ], qy = q[ 1 ], qz = q[ 2 ], qw = q[ 3 ],
+          vx = v[ 0 ], vy = v[ 1 ], vz = v[ 2 ],
+          x1 = qy * vz - qz * vy,
+          y1 = qz * vx - qx * vz,
+          z1 = qx * vy - qy * vx,
+          x2 = qw * x1 + qy * z1 - qz * y1,
+          y2 = qw * y1 + qz * x1 - qx * z1,
+          z2 = qw * z1 + qx * y1 - qy * x1;
+
+    out = out || v;
+    out[ 0 ] = vx + 2 * x2;
+    out[ 1 ] = vy + 2 * y2;
+    out[ 2 ] = vz + 2 * z2;
+    
+    return out;
+}
+
+function quatMul( a, b, out=[0,0,0,1] ){
+    const ax = a[0], ay = a[1], az = a[2], aw = a[3],
+          bx = b[0], by = b[1], bz = b[2], bw = b[3];
+    out[ 0 ] = ax * bw + aw * bx + ay * bz - az * by;
+    out[ 1 ] = ay * bw + aw * by + az * bx - ax * bz;
+    out[ 2 ] = az * bw + aw * bz + ax * by - ay * bx;
+    out[ 3 ] = aw * bw - ax * bx - ay * by - az * bz;
+    return out;
+}
+
+function quatInvert( q, out=[0,0,0,1] ){
+    const a0  = q[0],
+          a1  = q[1],
+          a2  = q[2],
+          a3  = q[3],
+          dot = a0*a0 + a1*a1 + a2*a2 + a3*a3;
+    
+    if( dot == 0 ){ out[0] = out[1] = out[2] = out[3] = 0; return out; }
+
+    const invDot = 1.0 / dot; // let invDot = dot ? 1.0/dot : 0;
+    out[ 0 ]     = -a0 * invDot;
+    out[ 1 ]     = -a1 * invDot;
+    out[ 2 ]     = -a2 * invDot;
+    out[ 3 ]     =  a3 * invDot;
+    return out;
+}
+// #endregion
+
+class Transform{
+    // #region MAIN
+    rot	= [0,0,0,1];
+    pos	= [0,0,0];
+    scl = [1,1,1];
+
+    constructor( rot, pos , scl ){
+        if( rot instanceof Transform )  this.copy( rot );
+        else if( rot && pos && scl )    this.set( rot, pos, scl );
+    }
+    // #endregion
+
+    // #region SETTERS / GETTERS
+    reset(){
+        this.rot[0] = 0;
+        this.rot[1] = 0;
+        this.rot[2] = 0;
+        this.rot[3] = 1;
+        this.pos[0] = 0;
+        this.pos[1] = 0;
+        this.pos[2] = 0;
+        this.scl[0] = 1;
+        this.scl[1] = 1;
+        this.scl[2] = 1;
+        return this;
+    }
+
+    copy( t ){
+        this.rot[0] = t.rot[0];
+        this.rot[1] = t.rot[1];
+        this.rot[2] = t.rot[2];
+        this.rot[3] = t.rot[3];
+        this.pos[0] = t.pos[0];
+        this.pos[1] = t.pos[1];
+        this.pos[2] = t.pos[2];
+        this.scl[0] = t.scl[0];
+        this.scl[1] = t.scl[1];
+        this.scl[2] = t.scl[2];
+        return this;
+    }
+
+    set( r, p, s ){
+        if( r ){
+            this.rot[0] = r[0];
+            this.rot[1] = r[1];
+            this.rot[2] = r[2];
+            this.rot[3] = r[3];
+        }
+        if( p ){
+            this.pos[0] = p[0];
+            this.pos[1] = p[1];
+            this.pos[2] = p[2];
+        }
+        if( s ){
+            this.scl[0] = s[0];
+            this.scl[1] = s[1];
+            this.scl[2] = s[2];
+        }
+        return this;
+    }
+
+    clone(){ return new Transform( this ); }
+    // #endregion
+
+    // #region OPERATORS
+
+    // Computing Transforms, Parent -> Child
+    mul( cr, cp, cs ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // If just passing in Tranform Object
+        if( cr instanceof Transform ){
+            cp = cr.pos;
+            cs = cr.scl;
+            cr = cr.rot;
+        }
+
+        if( cr && cp ){
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // POSITION - parent.position + ( parent.rotation * ( parent.scale * child.position ) )
+            const p = [
+                cp[0] * this.scl[0],
+                cp[1] * this.scl[1],
+                cp[2] * this.scl[2],
+            ];
+
+            transformQuat( p, this.rot );
+            this.pos[0] += p[0];
+            this.pos[1] += p[1];
+            this.pos[2] += p[2];
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // SCALE - parent.scale * child.scale
+            if( cs ){
+                this.scl[0] *= cs[0];
+                this.scl[1] *= cs[1];
+                this.scl[2] *= cs[2];
+            }
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ROTATION - parent.rotation * child.rotation
+            quatMul( this.rot, cr, this.rot );
+        }
+
+        return this;
+    }
+
+    // Computing Transforms in reverse, Child - > Parent
+    pmul( pr, pp, ps ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // If just passing in Tranform Object
+        if( pr instanceof Transform ){
+            pp = pr.pos;
+            ps = pr.scl;
+            pr = pr.rot;
+        }
+
+        if( !pr || !pp || !ps ) return this;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // POSITION - parent.position + ( parent.rotation * ( parent.scale * child.position ) )
+        this.pos[0] *= ps[0];
+        this.pos[1] *= ps[1];
+        this.pos[2] *= ps[2];
+        transformQuat( this.pos, pr );
+        this.pos[0] += pp[0];
+        this.pos[1] += pp[1];
+        this.pos[2] += pp[2];
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // SCALE - parent.scale * child.scale
+        if( ps ){
+            this.scl[0] *= ps[0];
+            this.scl[1] *= ps[1];
+            this.scl[2] *= ps[2];
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // ROTATION - parent.rotation * child.rotation
+        quatMul( pr, this.rot, this.rot ); // Must Rotate from Parent->Child, need PMUL
+        return this
+    }
+
+    // #endregion
+
+    // #region FROM OPERATORS
+    fromMul( tp, tc ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // POSITION - parent.position + (  ( parent.scale * child.position ) * parent.rotation )
+        const v = [                         // parent.scale * child.position
+            tp.scl[0] * tc.pos[0],
+            tp.scl[1] * tc.pos[1],
+            tp.scl[2] * tc.pos[2],
+        ];
+        transformQuat( v, tp.rot );         // * parent.rotation
+        this.pos[0] = tp.pos[0] + v[0];     // parent.position +
+        this.pos[1] = tp.pos[1] + v[1];
+        this.pos[2] = tp.pos[2] + v[2];
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // SCALE - parent.scale * child.scale
+        this.scl[0] = tp.scl[0] * tc.scl[0];
+        this.scl[1] = tp.scl[1] * tc.scl[1];
+        this.scl[2] = tp.scl[2] * tc.scl[2];
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // ROTATION - parent.rotation * child.rotation
+        quatMul( tp.rot, tc.rot, this.rot );
+        return this;
+    }
+
+    fromInvert( tr, tp, ts ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // If just passing in Tranform Object
+        if( tr instanceof Transform ){
+            tp = tr.pos;
+            ts = tr.scl;
+            tr = tr.rot;
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // Invert Rotation
+        quatInvert( tr, this.rot );
+
+        // Invert Scale
+        this.scl[ 0 ] = 1 / ts[0];
+        this.scl[ 1 ] = 1 / ts[1];
+        this.scl[ 2 ] = 1 / ts[2];
+
+        // Invert Position : rotInv * ( invScl * -Pos )
+        // Original math seems to not work right, just negate pos is enough
+        this.pos[0] = -tp[0];
+        this.pos[1] = -tp[1];
+        this.pos[2] = -tp[2];
+
+        return this;
+    }
+    // #endregion
+
+    // #region TRANSFORMATION
+    transformVec3( v, out=null ){
+        // GLSL - vecQuatRotation(model.rotation, a_position.xyz * model.scale) + model.position;
+        // return (out || v).fromMul( v, this.scl ).transformQuat( this.rot ).add( this.pos );
+
+        // Vector * Scale
+        const vx = v[0] * this.scl[0];
+        const vy = v[1] * this.scl[1];
+        const vz = v[2] * this.scl[2];
+
+        // ( Rotation * Vector3 ) + Translation
+        const qx = this.rot[0];
+        const qy = this.rot[1];
+        const qz = this.rot[2];
+        const qw = this.rot[3];
+        const x1 = qy * vz - qz * vy;
+        const y1 = qz * vx - qx * vz;
+        const z1 = qx * vy - qy * vx;
+        const x2 = qw * x1 + qy * z1 - qz * y1;
+        const y2 = qw * y1 + qz * x1 - qx * z1;
+        const z2 = qw * z1 + qx * y1 - qy * x1;
+
+        const rtn = out || v;
+        rtn[ 0 ]  = ( vx + 2 * x2 ) + this.pos[0];
+        rtn[ 1 ]  = ( vy + 2 * y2 ) + this.pos[1];
+        rtn[ 2 ]  = ( vz + 2 * z2 ) + this.pos[2];
+
+        return rtn;
+    }
+
+    // When using an inversed transform, use this to transform
+    // WorldSpace vectors to local space
+    transformVec3Rev( v, out=null ){
+        // Translation
+        const vx = v[0] + this.pos[0];
+        const vy = v[1] + this.pos[1];
+        const vz = v[2] + this.pos[2];
+
+        // ( Rotation * Vector3 ) * scale
+        const qx = this.rot[0];
+        const qy = this.rot[1];
+        const qz = this.rot[2];
+        const qw = this.rot[3];
+        const x1 = qy * vz - qz * vy;
+        const y1 = qz * vx - qx * vz;
+        const z1 = qx * vy - qy * vx;
+        const x2 = qw * x1 + qy * z1 - qz * y1;
+        const y2 = qw * y1 + qz * x1 - qx * z1;
+        const z2 = qw * z1 + qx * y1 - qy * x1;
+
+        const rtn = out || v;
+        rtn[0]    = ( vx + 2 * x2 ) * this.scl[0];
+        rtn[1]    = ( vy + 2 * y2 ) * this.scl[1];
+        rtn[2]    = ( vz + 2 * z2 ) * this.scl[2];
+        return rtn;
+    }
+    // #endregion
+}
+
+// #endregion
+
+// #region RAYCASTING
+class RayCasting{
+    // #region MAIN
+    caster       = new THREE.Raycaster();
+    ndc          = new THREE.Vector2();     // Normalize device coordinate
+    viewSize     = new THREE.Vector2();     // Pixel size of viewport
+    // #endregion
+
+    // #region METHODS
+    getRaySegment( camera ){
+        const org = this.caster.ray.origin;
+        const dir = this.caster.ray.direction;
+        const far = camera.far;
+        return [
+            [ org.x, org.y, org.z ],
+            [
+                org.x + dir.x * far,
+                org.y + dir.y * far,
+                org.z + dir.z * far,
+            ]
+        ];
+    }
+    // #endregion
+
+    // #region PRIVATE METHODS
+    updateCoord( e, renderer ){
+        // Compute position over the canvas with its top/left corner as origin
+        const box = renderer.domElement.getBoundingClientRect();
+        const x   = e.clientX - box.x;
+        const y   = e.clientY - box.y;
+        this.updateNdc( x, y, renderer );
+        return this;
+    }
+
+    updateNdc( x, y, renderer ){
+        // Compute NDC screen coordinate of mouse over canvas
+        renderer.getSize( this.viewSize );
+        this.ndc.x =  ( x / this.viewSize.x ) * 2 - 1;
+        this.ndc.y = -( y / this.viewSize.y ) * 2 + 1;
+        return this;
+    }
+
+    updateRay( camera ){
+        this.caster.setFromCamera( this.ndc, camera );
+        return this;
+    }
+    // #endregion
+}
+
+function nearPoint( rayStart, rayEnd, p ){
+    /* closest_point_to_line3D
+    let dx	= bx - ax,
+        dy	= by - ay,
+        dz	= bz - az,
+        t	= ( (px-ax)*dx + (py-ay)*dy + (pz-az)*dz ) / ( dx*dx + dy*dy + dz*dz ) ; */
+    // const v = vec3.sub( p, ray.posStart, [0,0,0] );
+    // vec3.mul( v, ray.vecLength );
+
+    const vLen = [
+        rayEnd[0] - rayStart[0],
+        rayEnd[1] - rayStart[1],
+        rayEnd[2] - rayStart[2],
+    ];
+
+    const v = [
+        ( p[0] - rayStart[0] ) * vLen[0],
+        ( p[1] - rayStart[1] ) * vLen[1],
+        ( p[2] - rayStart[2] ) * vLen[2],
+    ];
+
+    const t = ( v[0] + v[1] + v[2] ) / ( vLen[0]**2 + vLen[1]**2 + vLen[2]**2 );
+
+    if( t < 0 || t > 1 ) return null;                   // Over / Under shoots the Ray Segment
+    // const lenSqr = vec3.lenSq( ray.posAt( t, v ), p );  // Distance from point to nearest point on ray.
+    // return ( lenSqr <= (distLimit*distLimit) )? t : null;
+    
+    return [
+        rayStart[ 0 ] + vLen[ 0 ] * t,
+        rayStart[ 1 ] + vLen[ 1 ] * t,
+        rayStart[ 2 ] + vLen[ 2 ] * t,
+    ];
+}
+
+function intersectPlane( rayStart, rayEnd, planePos, planeNorm ){
+    // t   = ((planePos - rayOrigin) dot planeNorm) / ( rayVecLen dot planeNorm )
+    // pos = t * rayVecLen + rayOrigin;
+    const vecLen = [
+        rayEnd[0] - rayStart[0],
+        rayEnd[1] - rayStart[1],
+        rayEnd[2] - rayStart[2],
+    ];
+
+    const denom = vecLen[0]*planeNorm[0] + vecLen[1]*planeNorm[1] + vecLen[2]*planeNorm[2]; // Dot( vecLen, planeNorm )
+    if( denom <= 0.000001 && denom >= -0.000001 ) return null;  // abs(denom) < epsilon, using && instead to not perform absolute.
+
+    const offset = [
+        planePos[0] - rayStart[0],
+        planePos[1] - rayStart[1],
+        planePos[2] - rayStart[2],
+    ];
+    
+    // dot(offset,planeNorm) / denom
+    const t = ( offset[0]*planeNorm[0] + offset[1]*planeNorm[1] + offset[2]*planeNorm[2] ) / denom;
+    if( t < 0 ) return null;    // No intersection
+
+    // Hit position
+    return [
+        vecLen[ 0 ] * t + rayStart[0],
+        vecLen[ 1 ] * t + rayStart[1],
+        vecLen[ 2 ] * t + rayStart[2],
+    ];
+}
+
+function dot( a, b ){ return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function nearSegment( rayStart, rayEnd, p0, p1 ){
+    // http://geomalgorithms.com/a07-_distance.html
+    // const u = new Vec3( p1 ).sub( p0 );
+    const u = [
+        p1[0] - p0[0],
+        p1[1] - p0[1],
+        p1[2] - p0[2],
+    ];
+
+    // const v = ray.vecLength;
+    const v = [
+        rayEnd[0] - rayStart[0],
+        rayEnd[1] - rayStart[1],
+        rayEnd[2] - rayStart[2],
+    ];
+
+    // const w = new Vec3( p0 ).sub( ray.posStart );
+    const w = [
+        p0[0] - rayStart[0],
+        p0[1] - rayStart[1],
+        p0[2] - rayStart[2],
+    ]
+
+    const a = dot( u, u ); // always >= 0
+    const b = dot( u, v );
+    const c = dot( v, v ); // always >= 0
+    const d = dot( u, w );
+    const e = dot( v, w );
+    const D = a * c - b * b;    // always >= 0
+
+    let tU = 0; // T Of Segment 
+    let tV = 0; // T Of Ray
+
+    // Compute the line parameters of the two closest points
+    if( D < 0.000001 ){	            // the lines are almost parallel
+        tU = 0.0;
+        tV = ( b > c ? d/b : e/c ); // use the largest denominator
+    }else{
+        tU = ( b*e - c*d ) / D;
+        tV = ( a*e - b*d ) / D;
+    }
+
+    if( tU < 0 || tU > 1 || tV < 0 || tV > 1 ) return null;
+    
+    // Segment Position : u.scale( tU ).add( p0 )
+    // Ray Position :     v.scale( tV ).add( this.origin ) ];
+    // if( results ){
+        const ti     = 1 - tU;
+        const segPos = [
+            p0[0] * ti + p1[0] * tU,
+            p0[1] * ti + p1[1] * tU,
+            p0[2] * ti + p1[2] * tU,
+        ];
+
+        // results.segPosition[ 0 ] = p0[0] * ti + p1[0] * tU;
+        // results.segPosition[ 1 ] = p0[1] * ti + p1[1] * tU;
+        // results.segPosition[ 2 ] = p0[2] * ti + p1[2] * tU;
+        
+        // ray.posAt( tV, results.rayPosition );
+        const rayPos = [
+            v[ 0 ] * tV + rayStart[ 0 ],
+            v[ 1 ] * tV + rayStart[ 1 ],
+            v[ 2 ] * tV + rayStart[ 2 ],
+        ];
+
+        const dist = Math.sqrt(
+            ( segPos[0] - rayPos[0] )**2 + 
+            ( segPos[1] - rayPos[1] )**2 + 
+            ( segPos[2] - rayPos[2] )**2
+        );
+
+        // results.distanceSq = Vec3.distSqr( results.segPosition, results.rayPosition );
+        // results.distance   = Math.sqrt( results.distanceSq );
+    // }
+
+    return [ dist, segPos ];
+}
+// #endregion
+
+</script>
+
+<style>
+    * { font-family:monospace; }
+    .container{ position:fixed; bottom:10px; left:50%; transform: translate(-50%, 0%); }
+    .info{ position:fixed; top:10px; left:10px; color:white; }
+    label{ color:white; }
+</style>
+<div class="container">
+    <!-- 
+    <label>Polygons</label>
+    <select id="inpPolys">
+        <option></option>
+        <option>1</option>
+        <option>2</option>
+    </select><br> -->
+    <button id="btnExit">Exit</button>
+    <button id="btnGiz">GizmoMode</button>
+    <button id="btnEdit">EditMode</button>
+    <br>
+    <button id="btnDel">Delete Point</button>
+    <button id="btnAdd">Add Point</button>
+    <br>
+    <button id="btnTran">Translate</button>
+    <button id="btnRot">Rotate</button>
+    <button id="btnScl">Scale</button>
+</div>
+
+<div class="info">
+Edit Mode:<br>
+- Shift + Click : multi select<br>
+- Ctrl + Click : break multi select<br>
+- Add Point : Hover edges then click<br>
+
+<br>Gizmo Mode:<br>
+Keyboard 1: Translate<br>
+Keyboard 2: Rotate<br>
+Keyboard 3: Scale<br>
+Keyboard 4: Local Space<br>
+Keyboard 5: World Space<br>
+</div>
+
+</body></html>
